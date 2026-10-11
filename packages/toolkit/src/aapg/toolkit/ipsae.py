@@ -40,29 +40,27 @@ PDOCKQ_CONTACT_CUTOFF = 8.0
 LIS_PAE_CUTOFF = 12.0
 
 
+# The DunbrackLab/IPSAE reference clamps L to a minimum of 27 before the d0 formula, giving a
+# floor of d0 = 1.24*(12)**(1/3) - 1.8 ≈ 1.0389. The scalar and array forms below are kept
+# identical so a per-residue d0 never disagrees with a chain-pair d0 at the boundary.
+_D0_MIN_LENGTH = 27.0
+
+
 def calc_d0_array(l_array: Any, min_value: float = 1.0) -> np.ndarray:
     """Vectorised TM-score ``d0`` from a chain/interface length array.
 
-    ``L`` is clamped to a minimum of 26 before the Yang & Skolnick (2004) formula
-    ``d0 = 1.24 * (L - 15) ** (1/3) - 1.8`` is applied, and the result is clamped to
-    ``min_value`` (1.0 for proteins).
+    ``L`` is clamped to a minimum of 27 (matching the DunbrackLab/IPSAE reference) before the
+    Yang & Skolnick (2004) formula ``d0 = 1.24 * (L - 15) ** (1/3) - 1.8`` is applied, and the
+    result is clamped to ``min_value`` (1.0 for proteins).
     """
-    length = np.asarray(l_array, dtype=float)
-    length = np.maximum(26.0, length)
+    length = np.maximum(_D0_MIN_LENGTH, np.asarray(l_array, dtype=float))
     return np.maximum(min_value, 1.24 * (length - 15.0) ** (1.0 / 3.0) - 1.8)
 
 
 def calc_d0(length: float, min_value: float = 1.0) -> float:
-    """Scalar TM-score ``d0`` for a single length ``L``.
-
-    ``d0 = 1.24 * (L - 15) ** (1/3) - 1.8`` when ``L > 27`` else ``1.0``, clamped to
-    ``min_value``.
-    """
-    length = float(length)
-    if length > 27:
-        d0 = 1.24 * (length - 15.0) ** (1.0 / 3.0) - 1.8
-    else:
-        d0 = 1.0
+    """Scalar TM-score ``d0`` for a single length ``L`` (identical to :func:`calc_d0_array`)."""
+    clamped = max(_D0_MIN_LENGTH, float(length))
+    d0 = 1.24 * (clamped - 15.0) ** (1.0 / 3.0) - 1.8
     return max(min_value, d0)
 
 
@@ -115,6 +113,19 @@ def compute_ipsae(
     plddt = np.asarray(plddt, dtype=float)
     chains = np.asarray(list(chain_ids))
 
+    # All four inputs must index the same token/residue axis of length N. A mismatch here is a
+    # caller bug (e.g. the PAE token axis not aligned to the structure residues) and otherwise
+    # surfaces as a cryptic IndexError deep in the loop or a silently-wrong score.
+    if pae.ndim != 2 or pae.shape[0] != pae.shape[1]:
+        raise ValueError(f"pae must be a square 2D matrix; got shape {pae.shape}")
+    n = pae.shape[0]
+    if not (coords.shape[0] == chains.shape[0] == plddt.shape[0] == n):
+        raise ValueError(
+            "ipSAE inputs must share one token-axis length N: "
+            f"pae={n}, coords={coords.shape[0]}, chain_ids={chains.shape[0]}, "
+            f"plddt={plddt.shape[0]}"
+        )
+
     results: dict[str, Any] = {}
     # Preserve first-seen chain order.
     unique_chains = list(dict.fromkeys(chains.tolist()))
@@ -128,7 +139,6 @@ def compute_ipsae(
     # Pairwise CB-CB distances for pDockQ contacts.
     diff = coords[:, None, :] - coords[None, :, :]
     distances = np.sqrt(np.sum(diff * diff, axis=-1))
-    n = pae.shape[0]
 
     for c1 in unique_chains:
         for c2 in unique_chains:

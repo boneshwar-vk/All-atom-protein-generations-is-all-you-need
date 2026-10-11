@@ -36,13 +36,14 @@ def _two_chain_system(ab_pae: float) -> dict:
 
 
 def test_calc_d0_scalar_and_array() -> None:
-    # Small L clamps to the floor of 1.0.
-    assert calc_d0(3) == 1.0
-    assert calc_d0(27) == 1.0
-    # The array form clamps L to a minimum of 26 before the formula.
-    arr = calc_d0_array([1, 3, 26])
-    assert np.allclose(arr, arr[0])  # all clamp to the L=26 value
-    assert arr[0] == max(1.0, 1.24 * (26 - 15) ** (1 / 3) - 1.8)
+    # Matching DunbrackLab/IPSAE, L clamps to a minimum of 27 before the formula, giving a floor
+    # d0 = 1.24*(12)**(1/3) - 1.8 ≈ 1.0389. Scalar and array forms must agree.
+    floor = 1.24 * (27 - 15) ** (1 / 3) - 1.8
+    assert abs(calc_d0(3) - floor) < 1e-12
+    assert abs(calc_d0(27) - floor) < 1e-12
+    arr = calc_d0_array([1, 3, 27])
+    assert np.allclose(arr, floor)
+    assert abs(calc_d0(27) - float(calc_d0_array([27])[0])) < 1e-12
     # Large L follows Yang & Skolnick.
     assert calc_d0(100) == max(1.0, 1.24 * (100 - 15) ** (1 / 3) - 1.8)
 
@@ -61,14 +62,15 @@ def test_ipsae_good_better_than_bad() -> None:
 
 
 def test_ipsae_hand_computed_value() -> None:
-    # With a constant A-B PAE of 2.0 and 3 partners per residue, n0res=3 -> d0res clamps to 1.0
-    # (calc_d0_array clamps L to 26: 1.24*(26-15)**(1/3)-1.8 = 0.958 < 1.0).
-    # ptm = 1/(1+(2/1)**2) = 1/5 = 0.2, meaned over 3 partners = 0.2, max over residues = 0.2.
+    # Constant A-B PAE of 2.0, 3 partners/residue -> n0res=3 -> d0res clamps to the L=27 floor
+    # d0 = 1.24*(12)**(1/3)-1.8 ≈ 1.038891; ptm = 1/(1+(2/d0)**2); meaned over 3 == that ptm.
+    d0 = 1.24 * (27 - 15) ** (1 / 3) - 1.8
+    expected = 1.0 / (1.0 + (2.0 / d0) ** 2)
     res = compute_ipsae(**_two_chain_system(ab_pae=2.0))
-    assert res["A_B"]["d0res"] == 1.0
+    assert abs(res["A_B"]["d0res"] - d0) < 1e-9
     assert res["A_B"]["n0res"] == 3.0
-    assert abs(res["A_B"]["ipsae"] - 0.2) < 1e-9
-    assert abs(res["ipsae"] - 0.2) < 1e-9
+    assert abs(res["A_B"]["ipsae"] - expected) < 1e-9
+    assert abs(res["ipsae"] - expected) < 1e-9
 
 
 def test_ipsae_structure() -> None:

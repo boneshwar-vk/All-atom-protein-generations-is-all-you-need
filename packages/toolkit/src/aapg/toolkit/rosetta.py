@@ -107,15 +107,12 @@ def _make_interface_analyzer(interface: str, scorefxn: Any) -> Any:  # pragma: n
     return iam
 
 
-def process_file(
-    file: str,
+def analyze_interface(
+    pose: Any,
     binder_chains: tuple[str, ...],
     target_chains: tuple[str, ...],
-    relax_perform: bool = True,
-    relax_steps: int = 200,
-    relax_repeats: int = 2,
 ) -> dict[str, float]:  # pragma: no cover - requires pyrosetta
-    """Relax and analyse the binder/target interface of a complex structure file."""
+    """Run the InterfaceAnalyzer + CMS on an (already-relaxed) pose and return the metrics."""
     pr = _ensure_pyrosetta()
     from pyrosetta.rosetta.core.select.residue_selector import ChainSelector
 
@@ -123,10 +120,6 @@ def process_file(
     target_str = "".join(target_chains)
     binder_sel = ChainSelector(binder_str)
     target_sel = ChainSelector(target_str)
-
-    pose = pr.pose_from_file(file)
-    if relax_perform:
-        relax(pose, steps=relax_steps, repeats=relax_repeats)
 
     scorefxn = pr.get_fa_scorefxn()
     interface = f"{target_str}_{binder_str}"
@@ -137,7 +130,7 @@ def process_file(
     cms = contact_molecular_surface(pose, binder_sel, target_sel)
     n_binder = int(binder_sel.apply(pose).count(True)) if hasattr(binder_sel, "apply") else 0
 
-    out = {
+    return {
         "interface_dg": float(iam.get_interface_dG()),
         "interface_dsasa": float(iam.get_interface_delta_sasa()),
         "interface_hbonds": float(data.interface_hbonds),
@@ -147,7 +140,22 @@ def process_file(
         "per_res_reu": float(scorefxn(pose) / max(pose.total_residue(), 1)),
         "_n_binder": float(n_binder),
     }
-    return out
+
+
+def process_file(
+    file: str,
+    binder_chains: tuple[str, ...],
+    target_chains: tuple[str, ...],
+    relax_perform: bool = True,
+    relax_steps: int = 200,
+    relax_repeats: int = 2,
+) -> dict[str, float]:  # pragma: no cover - requires pyrosetta
+    """Load a complex, relax it once, and return its interface metrics (standalone/CLI helper)."""
+    pr = _ensure_pyrosetta()
+    pose = pr.pose_from_file(file)
+    if relax_perform:
+        relax(pose, steps=relax_steps, repeats=relax_repeats)
+    return analyze_interface(pose, binder_chains, target_chains)
 
 
 def _sap_normalized(pose: Any, binder_chains: tuple[str, ...]) -> float:  # pragma: no cover
@@ -193,18 +201,13 @@ class RosettaInterfaceScorer(Scorer):
             raise RuntimeError("rosetta_interface requires candidate.structure_path")
         pr = _ensure_pyrosetta()
 
-        metrics = process_file(
-            candidate.structure_path,
-            candidate.binder_chains,
-            candidate.target_chains,
-            relax_perform=self.relax,
-            relax_steps=self.relax_steps,
-            relax_repeats=self.relax_repeats,
-        )
-
+        # Relax ONCE and reuse the same pose for interface analysis and SAP, so every metric is
+        # measured on one structure (FastRelax is stochastic) and the expensive relax runs once.
         pose = pr.pose_from_file(candidate.structure_path)
         if self.relax:
             relax(pose, steps=self.relax_steps, repeats=self.relax_repeats)
+
+        metrics = analyze_interface(pose, candidate.binder_chains, candidate.target_chains)
         sap_norm = _sap_normalized(pose, candidate.binder_chains)
 
         binder_seq = candidate.binder_sequence

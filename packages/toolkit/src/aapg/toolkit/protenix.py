@@ -37,6 +37,20 @@ def _scale(unit: float, low: float, high: float) -> float:
     return low + unit * (high - low)
 
 
+def _reduce_summary_pae(value: Any, how: str) -> float:
+    """Reduce a summary PAE field to a scalar: pass a scalar through, else min/mean an array."""
+    if value is None:
+        return 0.0
+    import numpy as np
+
+    arr = np.asarray(value, dtype=float)
+    if arr.ndim == 0:
+        return float(arr)
+    if arr.size == 0:
+        return 0.0
+    return float(np.nanmin(arr) if how == "min" else np.nanmean(arr))
+
+
 @SCORERS.register("protenix_v2")
 class ProtenixScorer(Scorer):
     """Fold a binder/target complex with Protenix v2 and score the interface."""
@@ -149,8 +163,13 @@ class ProtenixScorer(Scorer):
         full = json.loads(full_files[0].read_text())
         return summary, full, str(cif_files[0])
 
-    def _coords_from_cif(self, cif_path: str) -> tuple[Any, list[str]]:
-        """Read representative (CB, CA for Gly) coords and chain ids from a CIF (lazy gemmi)."""
+    def _residue_repr_from_cif(self, cif_path: str) -> tuple[Any, list[str], Any]:
+        """Read per-residue representative coords, chain ids and pLDDT from a CIF (lazy gemmi).
+
+        One representative atom per residue (CB, or CA for glycine). Protenix writes per-atom
+        pLDDT (0-100) into the B-factor column, so the representative atom's B-factor is the
+        residue pLDDT used by pDockQ. Returned arrays share one residue-axis length.
+        """
         import gemmi  # pragma: no cover - requires gemmi
         import numpy as np
 
@@ -158,6 +177,7 @@ class ProtenixScorer(Scorer):
         model = structure[0]
         coords: list[list[float]] = []
         chain_ids: list[str] = []
+        plddt: list[float] = []
         for chain in model:
             for res in chain:
                 atom = res.find_atom("CB", "*") or res.find_atom("CA", "*")
@@ -165,7 +185,8 @@ class ProtenixScorer(Scorer):
                     continue
                 coords.append([atom.pos.x, atom.pos.y, atom.pos.z])
                 chain_ids.append(chain.name)
-        return np.asarray(coords, dtype=float), chain_ids
+                plddt.append(float(atom.b_iso))
+        return np.asarray(coords, dtype=float), chain_ids, np.asarray(plddt, dtype=float)
 
     def score(self, candidate: Candidate) -> Score:
         import numpy as np
@@ -181,22 +202,23 @@ class ProtenixScorer(Scorer):
         summary, full, cif_path = self._read_outputs(out_dir)
 
         iptm = float(summary.get("iptm", 0.0))
-        ipae_min = float(summary.get("chain_pair_pae_min", 0.0))
-        ipae_mean = float(summary.get("chain_pair_pae_mean", 0.0))
+        # chain_pair_pae_{min,mean} may be a scalar or a per-chain-pair matrix depending on the
+        # Protenix build; reduce robustly to a scalar either way.
+        ipae_min = _reduce_summary_pae(summary.get("chain_pair_pae_min"), "min")
+        ipae_mean = _reduce_summary_pae(summary.get("chain_pair_pae_mean"), "mean")
         complex_plddt = float(summary.get("plddt", 0.0))
         has_clash = float(summary.get("has_clash", 0.0))
 
         pae = np.asarray(full["token_pair_pae"], dtype=float)
-        token_chain = [str(c) for c in full["token_asym_id"]]
-        atom_plddt = np.asarray(full.get("atom_plddt", []), dtype=float)
-        coords, chain_ids = self._coords_from_cif(cif_path)
-        # Token-level pLDDT aligned to coords length; fall back to the complex pLDDT.
-        if atom_plddt.size == len(chain_ids):
-            res_plddt = atom_plddt
-        else:
-            res_plddt = np.full(len(chain_ids), complex_plddt, dtype=float)
+        # token_asym_id is aligned to the PAE token axis, so it is the authoritative chain map
+        # for the PAE-indexed metrics. coords/pLDDT come from the CIF (residue axis); for a
+        # standard protein complex the token and residue axes are 1:1 and compute_ipsae's length
+        # guard raises loudly if that assumption is violated rather than scoring silently wrong.
+        token_chain = [str(c) for c in full.get("token_asym_id", [])]
+        coords, cif_chains, res_plddt = self._residue_repr_from_cif(cif_path)
+        chains = token_chain if len(token_chain) == pae.shape[0] else cif_chains
 
-        ipsae = compute_ipsae(pae, coords, chain_ids or token_chain, res_plddt)
+        ipsae = compute_ipsae(pae, coords, chains, res_plddt)
 
         return Score(
             values={
