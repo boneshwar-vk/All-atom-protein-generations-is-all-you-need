@@ -2,6 +2,10 @@
 # Named preset: GRPO best-of-N / hill-climb SELECTION of RFD3 backbones + ProteinMPNN sequences,
 # scored by the Protenix + Rosetta cascade and ranked by the ipSAE-gated reward (module 1 v1).
 # No sampler weights are updated. Composes the module config groups.
+#
+# `experiment` is NOT in the root config's defaults list, so select this preset with a leading
+# '+': `aapg-grpo +experiment=grpo_binder ...` (plain `experiment=grpo_binder` is a Hydra error).
+# Keys not already present in a group also need '+', e.g. `+steering.output_path=ranked.parquet`.
 
 defaults:
   - override /model: rfd3

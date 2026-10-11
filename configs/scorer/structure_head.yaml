@@ -1,6 +1,12 @@
 # Learned structure->score head scorer (module 5). Swap this into configs/steering/grpo.yaml's
 # `cascade` (e.g. `cascade: [structure_head]`) for the fast path that bypasses ProteinMPNN and
 # Protenix v2. (placeholder)
+#
+# NOTE: the head predicts scalar scores only -- it emits no predicted coordinates and no all-atom
+# complex. So on this fast path the scRMSD self-consistency metric is NOT computed (its hard gate
+# is skipped, never fabricated to a passing value), there is no CIF to hand a downstream all-atom
+# scorer (e.g. Rosetta), and has_clash is likewise unavailable. If you need those gates, keep a
+# structure-prediction stage (structure_auto / boltz2 / protenix_v2) in the cascade.
 name: structure_head
 checkpoint: ???        # path to the trained head; required for the real scorer
 # targets: the scores the head predicts (defaults to the module's DEFAULT_TARGETS when unset)

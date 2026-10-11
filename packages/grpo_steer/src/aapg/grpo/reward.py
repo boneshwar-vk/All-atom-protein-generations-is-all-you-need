@@ -147,15 +147,30 @@ class IpSAEGatedReward(Reward):
         return primary_value - penalty
 
 
+# Boolean/indicator metrics must be reduced by OR (max), never averaged: averaging a clash flag
+# over a group of sequences yields a meaningless fraction that a {max: 0} hard gate then rejects
+# for the whole group even when most sequences are clash-free.
+_BOOLEAN_METRICS = frozenset({"has_clash"})
+
+
 def _mean_over_present(scores: list[Score]) -> dict[str, float]:
-    """Element-wise mean over the ``values`` of ``scores``, averaging where each key is present."""
+    """Element-wise mean over the ``values`` of ``scores``, averaging where each key is present.
+
+    Boolean indicator metrics (:data:`_BOOLEAN_METRICS`, e.g. ``has_clash``) are reduced by max
+    (logical OR) instead of mean, so the aggregate flags a clash iff any sequence clashes.
+    """
     sums: dict[str, float] = {}
     counts: dict[str, int] = {}
+    maxes: dict[str, float] = {}
     for score in scores:
         for key, value in score.values.items():
-            sums[key] = sums.get(key, 0.0) + float(value)
+            v = float(value)
+            sums[key] = sums.get(key, 0.0) + v
             counts[key] = counts.get(key, 0) + 1
-    return {key: sums[key] / counts[key] for key in sums}
+            maxes[key] = v if key not in maxes else max(maxes[key], v)
+    return {
+        key: (maxes[key] if key in _BOOLEAN_METRICS else sums[key] / counts[key]) for key in sums
+    }
 
 
 def aggregate_sequences(

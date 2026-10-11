@@ -65,9 +65,17 @@ def parse_pdb_ca(
     coords: list[list[float]] = []
     chains: list[str] = []
     for line in Path(path).read_text().splitlines():
+        # Keep only the first MODEL: a multi-model PDB (e.g. an NMR ensemble) would otherwise
+        # duplicate every residue and break the one-to-one residue correspondence scRMSD needs.
+        if line.startswith("ENDMDL"):
+            break
         if not line.startswith(("ATOM", "HETATM")):
             continue
         if line[12:16].strip() != "CA":
+            continue
+        # Keep one conformation per residue: accept a blank altLoc or the primary 'A', drop others.
+        altloc = line[16:17].strip()
+        if altloc not in ("", "A"):
             continue
         # Exclude calcium ions (atom name "CA", element "CA"): keep only carbon CA (the
         # protein backbone CA, element "C"). If the element column is absent, only trust ATOM.

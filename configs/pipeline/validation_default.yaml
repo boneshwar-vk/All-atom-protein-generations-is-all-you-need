@@ -1,14 +1,17 @@
-# Validation pipeline stage wiring (module 3) (placeholder).
-# Ordered stages; each names a tool adapter + its config.
+# Validation pipeline stage wiring (module 3) -- PLACEHOLDER, not yet consumed by any entrypoint.
+# Ordered stages; each names a tool adapter + its settings. The stage settings are kept as plain
+# literals (not ${scorer.*} interpolations): there is no `scorer.protenix`/`scorer.opendde` node
+# in the config tree -- the scorer group is flat -- so interpolating them raised
+# InterpolationKeyError the moment anything resolved this (unused) group. When module 3 lands it
+# should wire these to real scorer options via a proper group default, not a cross-group key.
 name: validation_default
 stages:
   - stage: proteinmpnn
-    model: ${model}
     num_seqs: 8
   - stage: protenix_v2
-    config: ${scorer.protenix}
+    scorer: protenix_v2
   - stage: opendde
-    config: ${scorer.opendde}
+    scorer: opendde
 verdict:
   # thresholds that turn stage outputs into a pass/fail verdict
   min_plddt: 80.0

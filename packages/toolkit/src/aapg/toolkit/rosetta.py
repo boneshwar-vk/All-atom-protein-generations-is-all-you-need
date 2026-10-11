@@ -34,8 +34,11 @@ def _ensure_pyrosetta() -> Any:
             "extra of aapg-toolkit (PyRosetta is separately licensed)."
         ) from exc
     if not _PYROSETTA_INITIALISED:
+        # -run:constant_seed + a fixed -jran make FastRelax reproducible run-to-run; without it the
+        # stochastic relax gives different interface energetics each run, breaking determinism.
         pr.init(
-            "-beta_nov16 -relax:default_repeats 1 -mute all -use_input_sc -ignore_unrecognized_res"
+            "-beta_nov16 -relax:default_repeats 1 -mute all -use_input_sc "
+            "-ignore_unrecognized_res -run:constant_seed -run:jran 12345"
         )
         _PYROSETTA_INITIALISED = True
     return pr

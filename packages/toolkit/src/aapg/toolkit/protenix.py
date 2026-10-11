@@ -236,15 +236,28 @@ class ProtenixScorer(Scorer):
         import numpy as np
 
         from aapg.toolkit.ipsae import compute_ipsae, entity_order_index, interface_pae
+        from aapg.toolkit.structure import interface_clash_from_cif
 
         self._check_licensed_weights()
 
-        # Everything needed downstream is parsed into memory below, so unless the caller pins a
-        # persistent work_dir, run under a TemporaryDirectory that is removed once parsed -- at
-        # GRPO scale the per-complex outputs would otherwise fill the disk.
-        ephemeral = self.work_dir is None
-        tmp = tempfile.TemporaryDirectory(prefix="aapg_protenix_") if ephemeral else None
-        base = Path(tmp.name) if tmp is not None else Path(self.work_dir)  # type: ignore[arg-type]
+        # Where to write the prediction. Precedence: a pinned self.work_dir (persist) > a per-
+        # candidate scratch dir the pipeline passes via candidate.metadata["work_dir"] (pipeline
+        # owns its lifetime; it threads the CIF to a downstream all-atom scorer then deletes it) >
+        # an ephemeral TemporaryDirectory cleaned here. Everything needed is parsed into memory, so
+        # ephemeral keeps the disk bounded at GRPO scale.
+        pipeline_scratch = candidate.metadata.get("work_dir")
+        if self.work_dir is not None:
+            base = Path(self.work_dir)
+            tmp = None
+            persist = True
+        elif pipeline_scratch:
+            base = Path(pipeline_scratch)
+            tmp = None
+            persist = True  # caller (pipeline) owns cleanup of this dir
+        else:
+            tmp = tempfile.TemporaryDirectory(prefix="aapg_protenix_")
+            base = Path(tmp.name)
+            persist = False
         try:
             out_dir = base / (candidate.name or "aapg_complex")
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -252,8 +265,11 @@ class ProtenixScorer(Scorer):
             self._run_protenix(input_path, out_dir)
             summary, full, cif_path = self._read_outputs(out_dir)
             repr_coords, ca_coords, cif_chains, res_plddt = self._residue_repr_from_cif(cif_path)
-            out_dir_str: str | None = None if ephemeral else str(out_dir)
-            cif_str: str | None = None if ephemeral else cif_path
+            computed_clash = interface_clash_from_cif(
+                cif_path, candidate.binder_chains, candidate.target_chains
+            )
+            out_dir_str: str | None = str(out_dir) if persist else None
+            cif_str: str | None = cif_path if persist else None
         finally:
             if tmp is not None:
                 tmp.cleanup()
@@ -305,10 +321,12 @@ class ProtenixScorer(Scorer):
             "ipae_mean": ipae_mean,
             "complex_plddt": complex_plddt,
         }
-        # Only emit has_clash when Protenix actually reports it: a defaulted 0.0 would fake a
-        # "no clash" pass through the reward's hard clash gate.
-        if "has_clash" in summary and summary.get("has_clash") is not None:
-            values["has_clash"] = float(summary["has_clash"])
+        # has_clash is the OR of our computed interface clash and Protenix's own flag when present,
+        # so the hard clash gate is always meaningful.
+        reported_clash = (
+            float(summary["has_clash"]) if summary.get("has_clash") is not None else 0.0
+        )
+        values["has_clash"] = max(computed_clash, reported_clash)
 
         return Score(
             values=values,

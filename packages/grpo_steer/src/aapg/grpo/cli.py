@@ -162,8 +162,21 @@ def _run_hydra() -> int:  # pragma: no cover - exercised only when hydra is inst
 
     @hydra.main(version_base=None, config_path=config_dir, config_name="config")
     def _app(cfg: DictConfig) -> None:
-        container = OmegaConf.to_container(cfg, resolve=True)
-        container = container if isinstance(container, dict) else {}
+        # Resolve ONLY the groups the GRPO trainer consumes, each against the full config root
+        # (so `${paths.weights_dir}` still resolves). Resolving the whole tree would also resolve
+        # unused groups -- notably `pipeline` (module 3), whose placeholder interpolations would
+        # crash the run even though the trainer never reads them.
+        def _resolve(group: str) -> dict[str, Any]:
+            node = cfg.get(group)
+            if node is None:
+                return {}
+            value = OmegaConf.to_container(node, resolve=True)
+            return {str(k): v for k, v in value.items()} if isinstance(value, dict) else {}
+
+        container = {
+            g: _resolve(g)
+            for g in ("steering", "reward", "scorer", "sampler", "model", "designer", "paths")
+        }
         steering = container.get("steering") or {}
         reward = container.get("reward") or {}
         trainer_cfg = dict(steering) if isinstance(steering, dict) else {}

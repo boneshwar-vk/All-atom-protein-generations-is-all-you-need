@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -66,18 +68,24 @@ _LEAD_COLUMNS = [
 
 
 def _predicted_ca(candidate_meta: dict[str, Any], scores: list[Score], seed_key: str) -> Any:
-    """Return the predicted-complex binder CA trace for scRMSD.
+    """Return the predicted-complex binder CA trace for scRMSD, or ``None`` if none is available.
 
-    In a real run the structure predictor emits binder CA coordinates; any scorer that provides
-    them stores them under ``metadata["predicted_ca_coords"]`` and they are used directly. In
-    the mock / dry-run path no predictor runs, so a deterministic small perturbation of the
-    designed backbone CA trace stands in, giving a reproducible, plausibly-small scRMSD.
+    A real structure predictor emits binder CA coordinates under
+    ``metadata["predicted_ca_coords"]``; those are used directly. If NO scorer emitted
+    coordinates, a stand-in is fabricated ONLY on the mock / dry-run path (a scorer tagged
+    ``metadata["mock"]``), as a deterministic small perturbation of the designed backbone so tests
+    have geometry. For a real coordinate-less backend (e.g. the learned ``structure_head``), we
+    return ``None`` so scRMSD is left uncomputed -- fabricating a sub-angstrom value would be a
+    silent pass through the self-consistency gate for a design we never actually checked.
     """
     for score in scores:
         predicted = score.metadata.get("predicted_ca_coords")
         if predicted is not None:
             return np.asarray(predicted, dtype=float)
 
+    # No coordinates from any scorer: only fabricate for the mock path, never for a real run.
+    if not any(score.metadata.get("mock") for score in scores):
+        return None
     designed = candidate_meta.get("backbone_ca_coords")
     if designed is None:
         return None
@@ -128,12 +136,18 @@ class SelectionPipeline:
         Returns the accumulated per-stage scores and whether the candidate survived every
         stage (``False`` means an interim hard gate rejected it and expensive stages were
         skipped).
+
+        When a stage produces a predicted all-atom complex (its score metadata carries a
+        ``cif_path``), that structure is threaded into ``candidate.structure_path`` for the
+        remaining stages, so a downstream all-atom scorer (e.g. Rosetta) analyses the
+        designed/folded complex rather than the sequence-less RFD3 backbone it started from.
         """
         collected: list[Score] = []
         survived = True
+        current = candidate
         for i, scorer in enumerate(self.scorers):
             try:
-                collected.append(scorer.score(candidate))
+                collected.append(scorer.score(current))
             except Exception as exc:  # noqa: BLE001 - one bad candidate must not kill the batch
                 # A failed prediction/scoring is recorded as an empty, flagged score; with no
                 # primary metric the reward rejects it (floor) instead of crashing the run.
@@ -142,6 +156,10 @@ class SelectionPipeline:
                 )
                 survived = False
                 break
+            # Hand a predicted complex to the later (e.g. Rosetta) stages.
+            cif_path = collected[-1].metadata.get("cif_path")
+            if cif_path:
+                current = replace(current, structure_path=cif_path)
             # After every stage except the last, drop candidates already failing a hard gate.
             if i < len(self.scorers) - 1 and self.interim_gates:
                 values = combine_scores(collected).values
@@ -154,23 +172,32 @@ class SelectionPipeline:
         return collected, survived
 
     def _candidate_score(self, candidate: Any) -> Score:
-        """Score one candidate through the cascade and attach scRMSD, returning one Score."""
-        collected, _survived = self._score_candidate(candidate)
-        merged = combine_scores(collected)
-        predicted = _predicted_ca(
-            candidate.metadata, collected, seed_key=f"scrmsd:{candidate.name}"
-        )
-        designed = candidate.metadata.get("backbone_ca_coords")
-        if predicted is not None and designed is not None:
-            try:
-                merged.values["scrmsd"] = self_consistency_rmsd(
-                    np.asarray(designed, dtype=float), predicted
-                )
-            except Exception as exc:  # noqa: BLE001 - fail closed, don't crash the round
-                # A shape mismatch or degenerate superposition must not kill the batch; record a
-                # non-finite scRMSD so the reward's hard gate rejects this candidate (fail-closed).
-                merged.values["scrmsd"] = float("inf")
-                merged.metadata.setdefault("scrmsd_error", str(exc))
+        """Score one candidate through the cascade and attach scRMSD, returning one Score.
+
+        The cascade runs inside a per-candidate scratch dir passed to the scorers via
+        ``metadata["work_dir"]``: a structure predictor writes its CIF there, the cascade threads
+        it to a downstream all-atom scorer, and the dir (with all prediction outputs) is removed
+        when scoring finishes -- keeping disk bounded at GRPO scale while the CIF lives exactly as
+        long as it is needed.
+        """
+        with tempfile.TemporaryDirectory(prefix="aapg_cand_") as scratch:
+            scored = replace(candidate, metadata={**candidate.metadata, "work_dir": scratch})
+            collected, _survived = self._score_candidate(scored)
+            merged = combine_scores(collected)
+            predicted = _predicted_ca(
+                candidate.metadata, collected, seed_key=f"scrmsd:{candidate.name}"
+            )
+            designed = candidate.metadata.get("backbone_ca_coords")
+            if predicted is not None and designed is not None:
+                try:
+                    merged.values["scrmsd"] = self_consistency_rmsd(
+                        np.asarray(designed, dtype=float), predicted
+                    )
+                except Exception as exc:  # noqa: BLE001 - fail closed, don't crash the round
+                    # A shape mismatch or degenerate superposition must not kill the batch; record
+                    # a non-finite scRMSD so the reward's hard gate rejects it (fail-closed).
+                    merged.values["scrmsd"] = float("inf")
+                    merged.metadata.setdefault("scrmsd_error", str(exc))
         return merged
 
     def _backbone_reward(self, seq_scores: list[Score]) -> float:
@@ -261,7 +288,28 @@ class SelectionPipeline:
                 row["advantage"] = advantages[b_idx]
                 row["selected"] = b_idx in selected
                 out_rows.append(row)
+
+        # Scoring for this round is done, so the non-winning backbone structure files are no
+        # longer needed (v1 does not reseed around them). Delete them to bound disk at GRPO scale;
+        # winners are kept for inspection/provenance. Mock backbones have no file on disk.
+        self._cleanup_backbones(backbones, keep=selected)
         return out_rows
+
+    @staticmethod
+    def _cleanup_backbones(backbones: list[Backbone], keep: set[int]) -> None:
+        """Remove on-disk structure files for the non-kept backbones (best-effort)."""
+        for b_idx, backbone in enumerate(backbones):
+            if b_idx in keep:
+                continue
+            path = getattr(backbone, "path", "")
+            if not path or path.startswith("mock://"):
+                continue
+            try:
+                p = Path(path)
+                if p.is_file():
+                    p.unlink()
+            except OSError:
+                pass  # provenance only; a failed cleanup must never fail the round
 
     def _grouped_advantage(self, rewards: list[float]) -> list[float]:
         """Group-relative advantage, computed within consecutive chunks of ``group_size``."""

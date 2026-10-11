@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from aapg.core.scoring import Score
+from aapg.core.scoring import Candidate, Score
 from aapg.grpo.reward import IpSAEGatedReward
 from aapg.grpo.selection import SelectionPipeline
 
@@ -59,11 +59,119 @@ def test_scrmsd_failure_is_fail_closed_infinite() -> None:
         reward=IpSAEGatedReward(primary="ipsae"),
         cfg={},
     )
-
-    class _Cand:
-        name = "c0"
-        metadata = {"backbone_ca_coords": np.zeros((10, 3))}  # 10 != 3 -> RMSD superposition fails
-
-    merged = pipe._candidate_score(_Cand())
+    # 10 designed CA vs 3 predicted CA -> Kabsch superposition raises -> fail-closed inf.
+    cand = Candidate(
+        structure_path=None,
+        binder_chains=("A",),
+        target_chains=("B",),
+        name="c0",
+        metadata={"backbone_ca_coords": np.zeros((10, 3))},
+    )
+    merged = pipe._candidate_score(cand)
     assert merged.values["scrmsd"] == float("inf")
     assert "scrmsd_error" in merged.metadata
+
+
+def test_cascade_threads_predicted_cif_to_downstream_scorer() -> None:
+    """A structure stage's cif_path must become the next stage's candidate.structure_path."""
+    seen: dict[str, object] = {}
+
+    class _StructScorer:
+        name = "struct"
+
+        def score(self, candidate):  # noqa: ANN001
+            return Score(
+                values={"ipsae": 0.8},
+                metadata={
+                    "cif_path": "/tmp/predicted_complex.cif",
+                    "predicted_ca_coords": np.zeros((5, 3)),
+                },
+            )
+
+    class _DownstreamScorer:
+        name = "down"
+
+        def score(self, candidate):  # noqa: ANN001
+            seen["structure_path"] = candidate.structure_path
+            return Score(values={"interface_dg": -10.0})
+
+    pipe = SelectionPipeline(
+        sampler=None,
+        designer=None,
+        scorers=[_StructScorer(), _DownstreamScorer()],
+        reward=IpSAEGatedReward(primary="ipsae"),
+        cfg={},
+    )
+    cand = Candidate(
+        structure_path="/backbone.pdb",
+        binder_chains=("A",),
+        target_chains=("B",),
+        name="c0",
+        metadata={"backbone_ca_coords": np.zeros((5, 3))},
+    )
+    pipe._candidate_score(cand)
+    # Rosetta et al. must analyse the predicted complex, not the sequence-less RFD3 backbone.
+    assert seen["structure_path"] == "/tmp/predicted_complex.cif"
+
+
+def test_scrmsd_not_fabricated_for_real_coordless_scorer() -> None:
+    """A real backend emitting no coordinates must leave scRMSD unset, never a fabricated pass."""
+
+    class _RealHead:
+        name = "structure_head"
+
+        def score(self, candidate):  # noqa: ANN001
+            return Score(values={"ipsae": 0.8}, metadata={})  # real, no coords, no mock flag
+
+    pipe = SelectionPipeline(
+        sampler=None,
+        designer=None,
+        scorers=[_RealHead()],
+        reward=IpSAEGatedReward(primary="ipsae"),
+        cfg={},
+    )
+    cand = Candidate(
+        binder_chains=("A",),
+        target_chains=("B",),
+        name="c0",
+        metadata={"backbone_ca_coords": np.zeros((8, 3))},
+    )
+    merged = pipe._candidate_score(cand)
+    assert "scrmsd" not in merged.values
+
+
+def test_scrmsd_fabricated_only_for_mock_scorer() -> None:
+    class _Mock:
+        name = "m"
+
+        def score(self, candidate):  # noqa: ANN001
+            return Score(values={"ipsae": 0.8}, metadata={"mock": True})
+
+    pipe = SelectionPipeline(
+        sampler=None,
+        designer=None,
+        scorers=[_Mock()],
+        reward=IpSAEGatedReward(primary="ipsae"),
+        cfg={},
+    )
+    cand = Candidate(
+        binder_chains=("A",),
+        target_chains=("B",),
+        name="c0",
+        metadata={"backbone_ca_coords": np.zeros((8, 3))},
+    )
+    merged = pipe._candidate_score(cand)
+    assert "scrmsd" in merged.values and merged.values["scrmsd"] >= 0.0
+
+
+def test_aggregate_mean_ors_has_clash() -> None:
+    """mean/topk aggregation must OR the boolean has_clash, not average it to a fraction."""
+    from aapg.grpo.reward import aggregate_sequences
+
+    scores = [
+        Score(values={"ipsae": 0.8, "has_clash": 0.0}),
+        Score(values={"ipsae": 0.6, "has_clash": 1.0}),
+    ]
+    agg = aggregate_sequences(scores, how="mean")
+    assert agg.values["has_clash"] == 1.0  # OR over the group, not 0.5
+    assert agg.values["ipsae"] == 0.7  # genuine mean of the continuous metric

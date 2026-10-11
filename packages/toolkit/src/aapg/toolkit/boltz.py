@@ -255,14 +255,27 @@ class BoltzScorer(Scorer):
 
     def score(self, candidate: Candidate) -> Score:
         from aapg.toolkit.ipsae import compute_ipsae, entity_order_index, interface_pae
+        from aapg.toolkit.structure import interface_clash_from_cif
 
-        # At GRPO scale (thousands of complexes) Boltz outputs would fill the disk, and everything
-        # needed downstream (confidence, PAE, coordinates) is parsed into memory below. So unless
-        # the caller pins a persistent work_dir, run under a TemporaryDirectory that is removed
-        # once parsed. When work_dir IS set the outputs persist (and cif_path/out_dir stay valid).
-        ephemeral = self.work_dir is None
-        tmp = tempfile.TemporaryDirectory(prefix="aapg_boltz_") if ephemeral else None
-        base = Path(tmp.name) if tmp is not None else Path(self.work_dir)  # type: ignore[arg-type]
+        # Where to write the prediction. Precedence: a pinned self.work_dir (persist) > a per-
+        # candidate scratch dir the pipeline passes via candidate.metadata["work_dir"] (the
+        # pipeline owns its lifetime -- it threads the CIF to the next cascade stage, e.g. Rosetta,
+        # then deletes the scratch) > an ephemeral TemporaryDirectory cleaned here. At GRPO scale
+        # everything needed is parsed into memory, so ephemeral keeps the disk bounded; the scratch
+        # path keeps the CIF alive long enough for a downstream all-atom scorer to read it.
+        pipeline_scratch = candidate.metadata.get("work_dir")
+        if self.work_dir is not None:
+            base = Path(self.work_dir)
+            tmp = None
+            persist = True
+        elif pipeline_scratch:
+            base = Path(pipeline_scratch)
+            tmp = None
+            persist = True  # caller (pipeline) owns cleanup of this dir
+        else:
+            tmp = tempfile.TemporaryDirectory(prefix="aapg_boltz_")
+            base = Path(tmp.name)
+            persist = False
         try:
             out_dir = base / (candidate.name or "aapg_complex")
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -270,8 +283,13 @@ class BoltzScorer(Scorer):
             self._run_boltz(input_path, out_dir)
             confidence, pae, cif_path = self._read_outputs(out_dir)
             repr_coords, ca_coords, chains, res_plddt = self._residue_repr_from_cif(cif_path)
-            out_dir_str: str | None = None if ephemeral else str(out_dir)
-            cif_str: str | None = None if ephemeral else cif_path
+            # Compute a real interface-clash flag from the all-atom structure (Boltz-2's confidence
+            # JSON does not report one), so the reward's has_clash hard gate is not inert.
+            computed_clash = interface_clash_from_cif(
+                cif_path, candidate.binder_chains, candidate.target_chains
+            )
+            out_dir_str: str | None = str(out_dir) if persist else None
+            cif_str: str | None = cif_path if persist else None
         finally:
             if tmp is not None:
                 tmp.cleanup()
@@ -314,10 +332,12 @@ class BoltzScorer(Scorer):
             "ipae_mean": ipae_mean,
             "complex_plddt": complex_plddt,
         }
-        # Only emit has_clash when Boltz actually reports it: defaulting a missing field to 0.0
-        # would fake a "no clash" pass through the reward's hard clash gate (vacuously true).
-        if "has_clash" in confidence and confidence.get("has_clash") is not None:
-            values["has_clash"] = float(confidence["has_clash"])
+        # has_clash is the OR of our computed interface clash and Boltz's own flag when present,
+        # so the hard clash gate is always meaningful (Boltz-2 itself does not report one).
+        reported_clash = (
+            float(confidence["has_clash"]) if confidence.get("has_clash") is not None else 0.0
+        )
+        values["has_clash"] = max(computed_clash, reported_clash)
 
         return Score(
             values=values,
