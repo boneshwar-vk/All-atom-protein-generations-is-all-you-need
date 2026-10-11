@@ -13,7 +13,7 @@ make weights            # == python scripts/download_weights.py  (places open we
 | Subdir | Model | License | How it gets here |
 |--------|-------|---------|------------------|
 | `boltz2/`       | Boltz-2 | MIT (open) | Boltz auto-downloads to its cache on first `boltz predict` |
-| `proteinmpnn/`  | ProteinMPNN | MIT (open) | ships in the vendored `packages/proteinmpnn` fork |
+| `proteinmpnn/`  | ProteinMPNN | MIT (open) | ships **with** the ProteinMPNN fork once it is vendored (`packages/proteinmpnn` is a placeholder today) |
 | `rfd3/`         | RFdiffusion3 | BSD-3 (open) | `foundry install rfd3` |
 | `protenix_v1/`  | Protenix v1 | Apache-2.0 (open) | `protenix` CLI auto-download |
 | `protenix_v2/`  | **Protenix v2** | **PROPRIETARY** | **licensed users only** — download yourself and place here |

@@ -10,7 +10,8 @@ Policy per model (the authoritative manifest is the ``MANIFEST`` list below; the
 
 - **boltz2** (MIT, open): Boltz downloads its own weights to its cache on first ``boltz predict``;
   nothing to fetch here. Point ``data/weights/boltz2`` at that cache (or let Boltz manage it).
-- **proteinmpnn** (MIT, open): weights ship inside the vendored ``packages/proteinmpnn`` fork.
+- **proteinmpnn** (MIT, open): weights ship WITH the ``packages/proteinmpnn`` fork once it is
+  vendored (the fork is a placeholder today).
 - **rfd3** (BSD-3, open): fetched by the Foundry CLI — ``foundry install rfd3`` (into ~/.foundry);
   run that where you have the RFD3 stack.
 - **protenix_v1** (Apache-2.0, open): auto-downloads via the ``protenix`` CLI on first run.
@@ -60,7 +61,8 @@ MANIFEST: list[WeightSpec] = [
         True,
         "in_repo",
         "proteinmpnn",
-        note="Ships inside the vendored packages/proteinmpnn fork; no download needed.",
+        note="Ships WITH the ProteinMPNN fork once vendored (packages/proteinmpnn is a "
+        "placeholder today); no separate download then.",
     ),
     WeightSpec(
         "rfd3",
