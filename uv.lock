@@ -64,7 +64,9 @@ version = "0.0.0"
 source = { editable = "packages/grpo_steer" }
 dependencies = [
     { name = "aapg-core" },
+    { name = "aapg-score-head" },
     { name = "aapg-toolkit" },
+    { name = "numpy" },
     { name = "proteinmpnn" },
     { name = "rfdiffusion3" },
 ]
@@ -78,8 +80,10 @@ full = [
 [package.metadata]
 requires-dist = [
     { name = "aapg-core", editable = "packages/core" },
+    { name = "aapg-score-head", editable = "packages/score_head" },
     { name = "aapg-toolkit", editable = "packages/toolkit" },
     { name = "hydra-core", marker = "extra == 'full'" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "polars", marker = "extra == 'full'" },
     { name = "proteinmpnn", editable = "packages/proteinmpnn" },
     { name = "rfdiffusion3", editable = "packages/rfdiffusion3" },

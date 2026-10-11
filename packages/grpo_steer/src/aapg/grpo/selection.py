@@ -30,7 +30,7 @@ import numpy as np
 from aapg.core.scoring import Reward, Score, Scorer, combine_scores
 from aapg.grpo.advantage import group_relative_advantage
 from aapg.grpo.candidate import build_candidate
-from aapg.grpo.reward import aggregate_sequences
+from aapg.grpo.reward import aggregate_sequences, bound_satisfied
 from aapg.grpo.scrmsd import self_consistency_rmsd
 
 if TYPE_CHECKING:
@@ -54,19 +54,15 @@ METRIC_COLUMNS = [
 ]
 
 # Non-metric columns that precede the metrics in the output table.
-_LEAD_COLUMNS = ["name", "binder_sequence", "round", "reward", "advantage", "backbone_path"]
-
-
-def _bound_satisfied(value: float, bound: dict[str, Any]) -> bool:
-    """Whether ``value`` satisfies a min/max/range ``bound`` (interim-gate check)."""
-    if "range" in bound:
-        lo, hi = float(bound["range"][0]), float(bound["range"][1])
-        return lo <= value <= hi
-    if "min" in bound and value < float(bound["min"]):
-        return False
-    if "max" in bound and value > float(bound["max"]):
-        return False
-    return True
+_LEAD_COLUMNS = [
+    "name",
+    "binder_sequence",
+    "round",
+    "selected",
+    "reward",
+    "advantage",
+    "backbone_path",
+]
 
 
 def _predicted_ca(candidate_meta: dict[str, Any], scores: list[Score], seed_key: str) -> Any:
@@ -136,12 +132,21 @@ class SelectionPipeline:
         collected: list[Score] = []
         survived = True
         for i, scorer in enumerate(self.scorers):
-            collected.append(scorer.score(candidate))
+            try:
+                collected.append(scorer.score(candidate))
+            except Exception as exc:  # noqa: BLE001 - one bad candidate must not kill the batch
+                # A failed prediction/scoring is recorded as an empty, flagged score; with no
+                # primary metric the reward rejects it (floor) instead of crashing the run.
+                collected.append(
+                    Score(values={}, metadata={"scorer_error": f"{scorer.name}: {exc}"})
+                )
+                survived = False
+                break
             # After every stage except the last, drop candidates already failing a hard gate.
             if i < len(self.scorers) - 1 and self.interim_gates:
                 values = combine_scores(collected).values
                 for metric, bound in self.interim_gates.items():
-                    if metric in values and not _bound_satisfied(float(values[metric]), bound):
+                    if metric in values and not bound_satisfied(float(values[metric]), bound):
                         survived = False
                         break
                 if not survived:
@@ -210,11 +215,22 @@ class SelectionPipeline:
         # Group-relative advantage over backbones, chunked into groups of group_size.
         advantages = self._grouped_advantage(backbone_reward)
 
+        # Select the round's top-k backbones by (advantage, reward); these are the winners
+        # (kept / used to reseed the next round). top_k <= 0 selects all.
+        order = sorted(
+            range(len(backbone_reward)),
+            key=lambda i: (advantages[i], backbone_reward[i]),
+            reverse=True,
+        )
+        n_sel = len(order) if self.top_k <= 0 else min(self.top_k, len(order))
+        selected = set(order[:n_sel])
+
         out_rows: list[dict[str, Any]] = []
         for b_idx, rows in enumerate(backbone_rows):
             for row in rows:
                 row["reward"] = backbone_reward[b_idx]
                 row["advantage"] = advantages[b_idx]
+                row["selected"] = b_idx in selected
                 out_rows.append(row)
         return out_rows
 

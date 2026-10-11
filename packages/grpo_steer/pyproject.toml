@@ -7,8 +7,10 @@ requires-python = ">=3.11"
 dependencies = [
     "aapg-core",
     "aapg-toolkit",
+    "aapg-score-head",
     "rfdiffusion3",
     "proteinmpnn",
+    "numpy>=1.26",
     # Optionally steers the ellipsoid-conditioned sampler; dependency added when wired.
 ]
 

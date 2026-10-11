@@ -13,6 +13,7 @@ import sys
 from typing import Any
 
 import aapg.grpo.reward  # noqa: F401  (registers "ipsae_gated" into REWARDS)
+import aapg.score_head  # noqa: F401  (registers "structure_head"[_mock] so the swap works)
 import aapg.toolkit  # noqa: F401  (registers the concrete + mock scorers into SCORERS)
 from aapg.grpo.trainer import GRPOTrainer
 
@@ -30,7 +31,10 @@ def default_cfg() -> dict[str, Any]:
         "top_k": 100,
         "group_size": 64,
         "seed": 0,
-        "cascade": ["protenix_v2", "rosetta_interface"],
+        "cascade": ["structure_auto", "rosetta_interface"],
+        "scorer_cfg": {
+            "structure_auto": {"boltz_weights_dir": None, "protenix_weights_dir": None},
+        },
         "sampler": {},
         "designer": {"temperature": 0.1},
         "target": {
@@ -54,13 +58,13 @@ def default_cfg() -> dict[str, Any]:
                 "scrmsd": {"max": 2.0},
             },
             "soft": {
-                "iptm": {"min": 0.6},
-                "ipae_min": {"max": 5},
-                "interface_dg": {"max": 0},
-                "shape_complementarity": {"min": 0.55},
-                "contact_molecular_surface": {"min": 400},
-                "sap_normalized": {"max": 50},
-                "isoelectric_point": {"range": [6.0, 9.0]},
+                "iptm": {"min": 0.6, "scale": 0.3},
+                "ipae_min": {"max": 5, "scale": 5},
+                "interface_dg": {"max": 0, "scale": 15},
+                "shape_complementarity": {"min": 0.55, "scale": 0.2},
+                "contact_molecular_surface": {"min": 400, "scale": 400},
+                "sap_normalized": {"max": 50, "scale": 50},
+                "isoelectric_point": {"range": [6.0, 9.0], "scale": 3},
             },
         },
         "output_path": None,
@@ -68,7 +72,13 @@ def default_cfg() -> dict[str, Any]:
 
 
 def _coerce(value: str) -> Any:
-    """Coerce a CLI string to bool/int/float/None, else leave it as a string."""
+    """Coerce a CLI string to bool/int/float/None/list, else leave it as a string.
+
+    A comma-separated value becomes a list (so ``cascade=structure_auto,rosetta_interface`` sets
+    a list, not a string iterated character-by-character).
+    """
+    if "," in value:
+        return [_coerce(part) for part in value.split(",")]
     low = value.lower()
     if low in {"true", "false"}:
         return low == "true"
@@ -153,11 +163,22 @@ def _run_hydra() -> int:  # pragma: no cover - exercised only when hydra is inst
     @hydra.main(version_base=None, config_path=config_dir, config_name="config")
     def _app(cfg: DictConfig) -> None:
         container = OmegaConf.to_container(cfg, resolve=True)
-        steering = container.get("steering", {}) if isinstance(container, dict) else {}
-        reward = container.get("reward", {}) if isinstance(container, dict) else {}
+        container = container if isinstance(container, dict) else {}
+        steering = container.get("steering") or {}
+        reward = container.get("reward") or {}
         trainer_cfg = dict(steering) if isinstance(steering, dict) else {}
         if reward:
             trainer_cfg.setdefault("reward", reward)
+        # Thread the top-level sampler/model groups into the sampler cfg so real-run settings
+        # (e.g. the RFD3 checkpoint) are not silently dropped (they live outside `steering`).
+        sampler_cfg = dict(trainer_cfg.get("sampler") or {})
+        top_sampler = container.get("sampler") or {}
+        if isinstance(top_sampler, dict):
+            sampler_cfg.update(top_sampler)
+        model_group = container.get("model") or {}
+        if isinstance(model_group, dict) and model_group.get("checkpoint"):
+            sampler_cfg.setdefault("checkpoint", model_group["checkpoint"])
+        trainer_cfg["sampler"] = sampler_cfg
         GRPOTrainer(trainer_cfg).run()
 
     _app()

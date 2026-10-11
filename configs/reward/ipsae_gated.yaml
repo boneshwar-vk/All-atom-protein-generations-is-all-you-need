@@ -19,11 +19,13 @@ hard:                   # fail -> candidate rejected (large negative reward)
   ipae_mean: {max: 10}
   complex_plddt: {min: 80}
   scrmsd: {max: 2.0}
-soft:                   # hinge penalties, relaxable; target-aware
-  iptm: {min: 0.6}      # NOT 0.9; relax toward 0.5 for hard/flat/oligomeric targets
-  ipae_min: {max: 5}
-  interface_dg: {max: 0}            # soft target -15
-  shape_complementarity: {min: 0.55}
-  contact_molecular_surface: {min: 400}   # heuristic; no firm public cutoff
-  sap_normalized: {max: 50}               # relative; soft only
-  isoelectric_point: {range: [6.0, 9.0]}  # developability flag
+soft:                   # hinge penalties, relaxable; target-aware. `scale` sets per-unit
+                        # sensitivity: penalty = penalty_weight * violation / scale. Give it
+                        # explicitly where the bound value is 0 (else scale floors at 1.0).
+  iptm: {min: 0.6, scale: 0.3}   # NOT 0.9; relax toward 0.5 for hard/flat/oligomeric targets
+  ipae_min: {max: 5, scale: 5}
+  interface_dg: {max: 0, scale: 15}        # bound is 0 -> MUST set scale (soft target ~ -15 REU)
+  shape_complementarity: {min: 0.55, scale: 0.2}
+  contact_molecular_surface: {min: 400, scale: 400}  # heuristic; no firm public cutoff
+  sap_normalized: {max: 50, scale: 50}               # relative; soft only
+  isoelectric_point: {range: [6.0, 9.0], scale: 3}   # developability flag

@@ -1,8 +1,7 @@
-# Default scorer bundle available to rewards / validation / iterative MPNN (placeholder).
-# Each key names a registered scorer (aapg.core.scoring.SCORERS); values are its config.
-enabled:
-  - plddt
-  - clash
-plddt: {}
-clash:
-  threshold: 2.0
+# Default scorer bundle (the registered scorers the GRPO cascade uses by name). The structure
+# backend is `structure_auto` (Boltz-2 open, or Protenix v2 if licensed weights are present),
+# followed by the Rosetta interface scorer. See configs/scorer/{structure_auto,boltz2,protenix,
+# rosetta_interface}.yaml for each backend's settings.
+cascade:
+  - structure_auto
+  - rosetta_interface

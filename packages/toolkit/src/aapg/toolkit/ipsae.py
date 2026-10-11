@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["calc_d0_array", "calc_d0", "compute_ipsae"]
+__all__ = ["calc_d0_array", "calc_d0", "compute_ipsae", "interface_pae"]
 
 # pDockQ CB-CB contact distance cutoff in Angstrom (Bryant et al. 2022).
 PDOCKQ_CONTACT_CUTOFF = 8.0
@@ -67,6 +67,44 @@ def calc_d0(length: float, min_value: float = 1.0) -> float:
 def _ptm(pae: np.ndarray, d0: float | np.ndarray) -> np.ndarray:
     """TM-score-like transform of the PAE: ``1 / (1 + (pae / d0) ** 2)``."""
     return 1.0 / (1.0 + (pae / d0) ** 2)
+
+
+def interface_pae(
+    pae: Any,
+    chain_ids: Sequence[Any],
+    binder_chains: Sequence[str],
+    target_chains: Sequence[str],
+) -> tuple[float, float]:
+    """Min and mean PAE over the binder<->target CROSS-CHAIN block of a token PAE matrix.
+
+    Both backends derive interface iPAE from this single helper so the ``ipae_min``/``ipae_mean``
+    gate means the same thing regardless of predictor. Only off-diagonal (cross-chain) entries
+    are used -- intra-chain blocks (low PAE) must not dilute the interface summary.
+
+    Raises:
+        ValueError: if ``pae`` is not square and aligned to ``chain_ids``, or if either chain set
+            is absent from ``chain_ids`` (an empty cross-chain block is an alignment bug, never a
+            "perfect 0 A interface").
+    """
+    arr = np.asarray(pae, dtype=float)
+    chains = np.asarray(list(chain_ids))
+    if arr.ndim != 2 or arr.shape[0] != arr.shape[1] or chains.shape[0] != arr.shape[0]:
+        raise ValueError(
+            f"interface_pae: pae {arr.shape} must be square and aligned to "
+            f"{chains.shape[0]} chain ids"
+        )
+    binder = np.isin(chains, list(binder_chains))
+    target = np.isin(chains, list(target_chains))
+    if not binder.any() or not target.any():
+        raise ValueError(
+            "interface_pae: binder/target chains not both present in the structure "
+            f"(binder={list(binder_chains)}, target={list(target_chains)}, "
+            f"chains={sorted(set(chains.tolist()))})"
+        )
+    block = np.concatenate(
+        [arr[np.ix_(binder, target)].ravel(), arr[np.ix_(target, binder)].ravel()]
+    )
+    return float(np.nanmin(block)), float(np.nanmean(block))
 
 
 def _empty_pair() -> dict[str, float]:

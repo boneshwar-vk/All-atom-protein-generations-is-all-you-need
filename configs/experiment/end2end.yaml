@@ -6,7 +6,7 @@ defaults:
   - override /model: rfd3_ellipsoid
   - override /ellipsoid: on_off_target
   - override /steering: grpo
-  - override /reward: default
+  - override /reward: ipsae_gated
   - override /pipeline: validation_default
   - _self_
 

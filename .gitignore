@@ -27,9 +27,13 @@ wandb/
 mlruns/
 *.log
 
-# Data & weights (tracked only via manifests)
+# Data & weights (tracked only via manifests; weights themselves are never committed)
 data/*
 !data/README.md
+# Keep the weights-directory doc, but not its contents.
+!data/weights/
+data/weights/*
+!data/weights/README.md
 *.pt
 *.ckpt
 *.pth

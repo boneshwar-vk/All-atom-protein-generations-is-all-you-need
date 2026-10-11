@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from aapg.core.scoring import Score
 from aapg.grpo.reward import IpSAEGatedReward
 
@@ -93,3 +95,36 @@ def test_range_bound_soft_penalty():
     values = _passing_values()
     values["isoelectric_point"] = 11.0  # above the 9.0 upper bound
     assert reward([Score(values=values)]) < reward([Score(values=_passing_values())])
+
+
+def test_interface_dg_zero_bound_penalty_does_not_explode():
+    # Regression: a soft bound of {max: 0} must NOT give a ~1e-8 scale (near-infinite penalty).
+    # With the scale floored at 1.0, a +2 REU dG costs a bounded ~2.0, not ~2e8.
+    values = _passing_values()
+    values["interface_dg"] = 2.0  # positive dG, violates {max: 0} by 2
+    r = _reward()([Score(values=values)])
+    assert r > -900.0  # nowhere near the hard-fail floor
+    assert abs(r - (0.8 - 2.0)) < 1e-6
+
+
+def test_nan_hard_metric_fails_closed():
+    values = _passing_values()
+    values["complex_plddt"] = float("nan")  # hard gate {min: 80}
+    r = _reward()([Score(values=values)])
+    assert r < -900.0  # non-finite hard metric rejects, not fail-open
+
+
+def test_nan_soft_metric_penalized_not_ignored():
+    values = _passing_values()
+    values["contact_molecular_surface"] = float("nan")  # soft gate
+    r = _reward()([Score(values=values)])
+    assert math.isfinite(r)
+    assert r < 0.8  # a non-finite soft metric adds a penalty rather than passing free
+
+
+def test_missing_primary_rejects():
+    # No ipsae at all -> candidate was not properly scored -> reject (not ranked mid-pack at ~0).
+    values = _passing_values()
+    del values["ipsae"]
+    r = _reward()([Score(values=values)])
+    assert r <= -1e3

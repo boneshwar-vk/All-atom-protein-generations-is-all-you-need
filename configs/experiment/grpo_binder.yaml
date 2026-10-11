@@ -7,13 +7,16 @@ defaults:
   - override /model: rfd3
   - override /steering: grpo
   - override /reward: ipsae_gated
-  - override /scorer: protenix
+  - override /scorer: structure_auto
   - _self_
 
 run_name: grpo_binder_demo
 seed: 0
 
-# Cost-ordered scoring cascade (cheap -> expensive); gated with the reward's hard gates.
+# Cost-ordered scoring cascade (cheap -> expensive); gated with the reward's hard gates. Uses the
+# open default structure backend (Boltz-2, or Protenix v2 if licensed weights are present);
+# scorer_cfg is inherited from configs/steering/grpo.yaml. To force Protenix v2, set
+# `cascade: [protenix_v2, rosetta_interface]` and add scorer_cfg.protenix_v2.weights_dir.
 steering:
   mode: selection
-  cascade: [protenix_v2, rosetta_interface]
+  cascade: [structure_auto, rosetta_interface]

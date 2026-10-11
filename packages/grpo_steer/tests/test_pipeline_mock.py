@@ -51,7 +51,15 @@ def test_pipeline_returns_all_candidates():
 def test_pipeline_has_all_metric_and_rank_columns():
     table = _pipeline().run(Target(binder_length=20))
     rows = _rows(table)
-    expected = {"name", "binder_sequence", "round", "reward", "advantage", *METRIC_COLUMNS}
+    expected = {
+        "name",
+        "binder_sequence",
+        "round",
+        "selected",
+        "reward",
+        "advantage",
+        *METRIC_COLUMNS,
+    }
     for row in rows:
         assert expected.issubset(row.keys())
         # scRMSD was computed from the mock backbone coords.
@@ -73,7 +81,7 @@ def test_pipeline_ranked_by_advantage():
     assert advantages == sorted(advantages, reverse=True)
 
 
-def test_top_k_limits_kept_backbones():
+def test_top_k_marks_only_winners_selected():
     sampler = MockRFD3Sampler()
     designer = MockMPNNDesigner()
     scorers = [SCORERS.create("protenix_v2_mock"), SCORERS.create("rosetta_interface_mock")]
@@ -82,10 +90,14 @@ def test_top_k_limits_kept_backbones():
         "n_backbones": 4,
         "seqs_per_backbone": 2,
         "n_rounds": 1,
-        "top_k": 100,
+        "top_k": 2,  # keep 2 of 4 backbones
         "group_size": 64,
         "seed": 1,
     }
     pipeline = SelectionPipeline(sampler, designer, scorers, reward, cfg)
     rows = _rows(pipeline.run(Target(binder_length=16)))
-    assert len(rows) == 8
+    assert len(rows) == 8  # all candidates recorded
+    # Exactly top_k backbones (2) are selected; each contributes seqs_per_backbone (2) rows.
+    selected_backbones = {r["name"].rsplit("_s", 1)[0] for r in rows if r["selected"]}
+    assert len(selected_backbones) == 2
+    assert sum(1 for r in rows if r["selected"]) == 4

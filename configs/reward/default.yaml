@@ -1,9 +1,0 @@
-# Reward composition: weighted bundle of scorers, resolved by name from the scorer registry.
-# (placeholder)
-name: weighted_sum
-terms:
-  - scorer: plddt
-    weight: 1.0
-  - scorer: clash
-    weight: -1.0
-normalize: group   # group | running | none

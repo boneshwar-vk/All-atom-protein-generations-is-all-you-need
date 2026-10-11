@@ -204,7 +204,7 @@ class BoltzScorer(Scorer):
         return np.asarray(coords, dtype=float), chain_ids, np.asarray(plddt, dtype=float)
 
     def score(self, candidate: Candidate) -> Score:
-        from aapg.toolkit.ipsae import compute_ipsae
+        from aapg.toolkit.ipsae import compute_ipsae, interface_pae
 
         base = Path(self.work_dir) if self.work_dir else Path.cwd() / "boltz_runs"
         out_dir = base / (candidate.name or "aapg_complex")
@@ -224,8 +224,10 @@ class BoltzScorer(Scorer):
         res_plddt = _plddt_array_100(res_plddt)
         ipsae = compute_ipsae(pae, coords, chains, res_plddt)
 
-        # Interface PAE summaries from the cross-chain block of the token PAE.
-        ipae_min, ipae_mean = _interface_pae(pae, chains, candidate)
+        # Interface PAE from the cross-chain block of the token PAE (shared with Protenix).
+        ipae_min, ipae_mean = interface_pae(
+            pae, chains, candidate.binder_chains, candidate.target_chains
+        )
 
         return Score(
             values={
@@ -244,26 +246,6 @@ class BoltzScorer(Scorer):
                 "ipsae_pairs": {k: v for k, v in ipsae.items() if "_" in k},
             },
         )
-
-
-def _interface_pae(pae: Any, chains: list[str], candidate: Candidate) -> tuple[float, float]:
-    """Min and mean PAE over the binder<->target cross-chain block (0 if unavailable)."""
-    import numpy as np
-
-    arr = np.asarray(pae, dtype=float)
-    if arr.ndim != 2 or arr.shape[0] != arr.shape[1] or len(chains) != arr.shape[0]:
-        return 0.0, 0.0
-    chain_arr = np.asarray(chains)
-    binder = np.isin(chain_arr, list(candidate.binder_chains))
-    target = np.isin(chain_arr, list(candidate.target_chains))
-    if not binder.any() or not target.any():
-        return 0.0, 0.0
-    block = np.concatenate(
-        [arr[np.ix_(binder, target)].ravel(), arr[np.ix_(target, binder)].ravel()]
-    )
-    if block.size == 0:
-        return 0.0, 0.0
-    return float(np.nanmin(block)), float(np.nanmean(block))
 
 
 # Plausible ranges for the deterministic mock, matching the real scorer's output keys.

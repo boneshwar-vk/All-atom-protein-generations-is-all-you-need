@@ -37,20 +37,6 @@ def _scale(unit: float, low: float, high: float) -> float:
     return low + unit * (high - low)
 
 
-def _reduce_summary_pae(value: Any, how: str) -> float:
-    """Reduce a summary PAE field to a scalar: pass a scalar through, else min/mean an array."""
-    if value is None:
-        return 0.0
-    import numpy as np
-
-    arr = np.asarray(value, dtype=float)
-    if arr.ndim == 0:
-        return float(arr)
-    if arr.size == 0:
-        return 0.0
-    return float(np.nanmin(arr) if how == "min" else np.nanmean(arr))
-
-
 def _to_plddt100(value: float) -> float:
     """Normalise a scalar pLDDT to the 0-100 scale (×100 if it looks like a 0-1 value)."""
     return value * 100.0 if 0.0 <= value <= 1.0 else value
@@ -225,7 +211,7 @@ class ProtenixScorer(Scorer):
     def score(self, candidate: Candidate) -> Score:
         import numpy as np
 
-        from aapg.toolkit.ipsae import compute_ipsae
+        from aapg.toolkit.ipsae import compute_ipsae, interface_pae
 
         self._check_licensed_weights()
         base = Path(self.work_dir) if self.work_dir else Path.cwd() / "protenix_runs"
@@ -237,12 +223,8 @@ class ProtenixScorer(Scorer):
         summary, full, cif_path = self._read_outputs(out_dir)
 
         iptm = float(summary.get("iptm", 0.0))
-        # chain_pair_pae_{min,mean} may be a scalar or a per-chain-pair matrix depending on the
-        # Protenix build; reduce robustly to a scalar either way.
-        ipae_min = _reduce_summary_pae(summary.get("chain_pair_pae_min"), "min")
-        ipae_mean = _reduce_summary_pae(summary.get("chain_pair_pae_mean"), "mean")
         complex_plddt = _to_plddt100(float(summary.get("plddt", 0.0)))
-        has_clash = float(summary.get("has_clash", 0.0))
+        has_clash = float(summary.get("has_clash", 0.0) or 0.0)
 
         pae = np.asarray(full["token_pair_pae"], dtype=float)
         # token_asym_id is aligned to the PAE token axis, so it is the authoritative chain map
@@ -255,6 +237,12 @@ class ProtenixScorer(Scorer):
         chains = token_chain if len(token_chain) == pae.shape[0] else cif_chains
 
         ipsae = compute_ipsae(pae, coords, chains, res_plddt)
+        # Interface iPAE from the token PAE cross-chain block (same helper as Boltz, so the
+        # ipae gates mean the same thing across backends; this avoids the chain_pair_pae summary
+        # which includes intra-chain diagonal blocks that dilute the mean / zero the min).
+        ipae_min, ipae_mean = interface_pae(
+            pae, chains, candidate.binder_chains, candidate.target_chains
+        )
 
         return Score(
             values={
