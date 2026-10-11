@@ -6,9 +6,19 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aapg-core",
+    "aapg-toolkit",
     "rfdiffusion3",
+    "proteinmpnn",
     # Optionally steers the ellipsoid-conditioned sampler; dependency added when wired.
 ]
+
+# Optional: Hydra config composition and polars Parquet output. Both are lazily imported, so
+# the package runs (mock pipeline, tests, CLI argparse fallback, JSONL output) without them.
+[project.optional-dependencies]
+full = ["hydra-core", "polars"]
+
+[project.scripts]
+aapg-grpo = "aapg.grpo.cli:main"
 
 [build-system]
 requires = ["hatchling"]

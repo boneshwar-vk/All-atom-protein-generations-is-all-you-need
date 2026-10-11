@@ -1,0 +1,19 @@
+# @package _global_
+# Named preset: GRPO best-of-N / hill-climb SELECTION of RFD3 backbones + ProteinMPNN sequences,
+# scored by the Protenix + Rosetta cascade and ranked by the ipSAE-gated reward (module 1 v1).
+# No sampler weights are updated. Composes the module config groups.
+
+defaults:
+  - override /model: rfd3
+  - override /steering: grpo
+  - override /reward: ipsae_gated
+  - override /scorer: protenix
+  - _self_
+
+run_name: grpo_binder_demo
+seed: 0
+
+# Cost-ordered scoring cascade (cheap -> expensive); gated with the reward's hard gates.
+steering:
+  mode: selection
+  cascade: [protenix_v2, rosetta_interface]

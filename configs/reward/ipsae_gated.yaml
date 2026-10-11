@@ -1,0 +1,29 @@
+# ipSAE-primary gated reward (module 1). Reward = ipSAE minus soft hinge penalties, unless a
+# hard gate fails (then a large-negative reward). Resolved by name from the REWARDS registry
+# (aapg.grpo.reward.IpSAEGatedReward).
+#
+# Calibration note: these are PERMISSIVE first-pass gates, deliberately NOT the aggressive
+# iptm 0.9 some pipelines use. BindCraft ships an iptm default of 0.5, and selection additionally
+# ranks survivors by group-relative advantage, so even on hard / flat / oligomeric targets where
+# most candidates miss a gate there is still a usable gradient between candidates. Relax the
+# soft iptm bound toward 0.5 for such targets. Several bounds (contact_molecular_surface,
+# sap_normalized) are heuristic with no firm public cutoff and are kept soft only.
+name: ipsae_gated
+primary: ipsae
+aggregate: max          # max | mean | topk over the 8 MPNN sequences
+top_k: 1
+penalty_weight: 1.0
+hard:                   # fail -> candidate rejected (large negative reward)
+  has_clash: {max: 0}
+  ipsae: {min: 0.6}
+  ipae_mean: {max: 10}
+  complex_plddt: {min: 80}
+  scrmsd: {max: 2.0}
+soft:                   # hinge penalties, relaxable; target-aware
+  iptm: {min: 0.6}      # NOT 0.9; relax toward 0.5 for hard/flat/oligomeric targets
+  ipae_min: {max: 5}
+  interface_dg: {max: 0}            # soft target -15
+  shape_complementarity: {min: 0.55}
+  contact_molecular_surface: {min: 400}   # heuristic; no firm public cutoff
+  sap_normalized: {max: 50}               # relative; soft only
+  isoelectric_point: {range: [6.0, 9.0]}  # developability flag

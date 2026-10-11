@@ -1,7 +1,38 @@
-# GRPO steering hyperparameters (module 1) (placeholder).
+# GRPO steering (module 1). v1 is best-of-N / hill-climb SELECTION: no sampler weights are
+# updated; backbones are sampled, sequences designed, candidates scored through a cost-ordered
+# cascade, and the best are kept by group-relative advantage. The `rl` mode (policy-gradient
+# GRPO) is future work (see packages/grpo_steer/src/aapg/grpo/advantage.py and the log-prob
+# hook in rfdiffusion3/adapter.py); the RL-only hyperparameters below are retained for it.
 name: grpo
-group_size: 16        # rollouts per group
-kl_coeff: 0.05        # KL anchor to the base policy
+mode: selection        # selection (v1) | rl (not implemented)
+
+# --- selection loop sizes ---
+n_backbones: 4096      # backbones sampled per round
+seqs_per_backbone: 8   # MPNN sequences designed per backbone
+group_size: 64         # backbones per group for group-relative advantage
+n_rounds: 1            # hill-climb rounds (reseed around winners between rounds)
+top_k: 100             # winners kept per round
+
+mock: false            # true resolves scorers to their *_mock variants (CPU, no heavy imports)
+
+# Cost-ordered scoring cascade: cheap stages first. Interim hard gates (the reward's `hard`
+# block) are applied after each stage, so expensive stages run ONLY on survivors (early exit).
+cascade: [protenix_v2, rosetta_interface]
+# interim_gates: defaults to the reward's hard gates; override here to gate on a cheap subset
+# after the first stage (e.g. reject obvious clashers before running Rosetta).
+
+# Fixed target the binder is designed against.
+target:
+  structure_path: ???  # set per run
+  chains: [B]
+  binder_chains: [A]
+  hotspots: []
+  binder_length: 80
+
+# output_path: null    # set to write the ranked table (Parquet via polars, else JSONL)
+
+# --- RL-only (mode: rl), retained for the future policy-gradient trainer ---
+kl_coeff: 0.05         # KL anchor to the base policy
 clip_ratio: 0.2
 learning_rate: 1.0e-5
 num_iterations: 1000

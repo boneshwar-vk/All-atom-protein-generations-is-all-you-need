@@ -7,7 +7,7 @@ defaults:
   - sampler: default
   - ellipsoid: none
   - steering: grpo
-  - reward: default
+  - reward: ipsae_gated
   - scorer: default
   - pipeline: validation_default
   - trainer: default
