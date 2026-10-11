@@ -1,0 +1,9 @@
+# Boltz-2 structure-prediction scorer — the DEFAULT open interface backend.
+# Boltz-2 is MIT-licensed with open, commercially-usable weights that auto-download on first run
+# (or set weights_dir to a local copy under data/weights/boltz2 for offline/container runs).
+name: boltz2
+model: boltz2
+weights_dir: ${paths.weights_dir}/boltz2   # optional local cache; null/unset => Boltz auto-cache
+recycling_steps: 3
+diffusion_samples: 1
+container: aapg/boltz2:latest

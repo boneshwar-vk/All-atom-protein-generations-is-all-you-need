@@ -17,7 +17,15 @@ mock: false            # true resolves scorers to their *_mock variants (CPU, no
 
 # Cost-ordered scoring cascade: cheap stages first. Interim hard gates (the reward's `hard`
 # block) are applied after each stage, so expensive stages run ONLY on survivors (early exit).
-cascade: [protenix_v2, rosetta_interface]
+# Default structure backend is `structure_auto`: Boltz-2 (open, MIT) unless licensed Protenix v2
+# weights are present in protenix_weights_dir, in which case it auto-uses Protenix v2. To force a
+# backend, replace structure_auto with `boltz2` or `protenix_v2`.
+cascade: [structure_auto, rosetta_interface]
+# Per-scorer construction kwargs (keyed by the cascade name).
+scorer_cfg:
+  structure_auto:
+    boltz_weights_dir: ${paths.weights_dir}/boltz2
+    protenix_weights_dir: ${paths.weights_dir}/protenix_v2   # drop licensed v2 weights here to auto-enable
 # interim_gates: defaults to the reward's hard gates; override here to gate on a cheap subset
 # after the first stage (e.g. reject obvious clashers before running Rosetta).
 

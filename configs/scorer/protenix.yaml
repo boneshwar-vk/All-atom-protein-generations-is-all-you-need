@@ -1,6 +1,14 @@
-# Protenix v2 scorer config (used by validation).
+# Protenix v2 scorer — LICENSED alternative to the default Boltz-2 backend.
+#
+# Protenix v2 WEIGHTS ARE PROPRIETARY: "not released under any open-source license" and may not
+# be redistributed. They are therefore NOT downloaded by scripts/download_weights.py and NOT
+# committed to this repo. If you are licensed to use them, download the v2 weights yourself and
+# place them under data/weights/protenix_v2/ (git-ignored), then point `weights_dir` here and add
+# `protenix_v2` to the cascade in configs/steering/grpo.yaml. Protenix v1 (Apache-2.0, open
+# weights) also works with this scorer via model_name: protenix_base_default_v1.0.0.
 name: protenix_v2
 model_name: protenix-v2
+weights_dir: ${paths.weights_dir}/protenix_v2   # place your licensed v2 weights here
 seeds: [101]
 n_step: 200
 n_cycle: 10

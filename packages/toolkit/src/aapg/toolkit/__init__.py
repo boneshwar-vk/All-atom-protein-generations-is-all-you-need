@@ -13,6 +13,8 @@ imports below succeed even when those tools are absent.
 from __future__ import annotations
 
 # Registration side effects: importing these modules registers the scorers into SCORERS.
-from aapg.toolkit import ipsae, protenix, rosetta  # noqa: F401
+# structure_auto is the default (Boltz-2 open, or Protenix v2 if licensed weights are present);
+# boltz2 and protenix are the concrete backends it delegates to.
+from aapg.toolkit import auto, boltz, ipsae, protenix, rosetta  # noqa: F401
 
 __version__ = "0.0.0"

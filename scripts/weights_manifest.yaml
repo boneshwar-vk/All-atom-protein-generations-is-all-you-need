@@ -1,15 +1,35 @@
-# Model weights manifest (placeholder).
-# Each entry: name, url, sha256 (for integrity), dest (relative to data/weights/).
+# Human-readable mirror of the manifest in scripts/download_weights.py (that script's MANIFEST
+# list is authoritative). Weights live under data/weights/<dest>/ and are NEVER committed to git
+# (size + licensing). `make weights` / `python scripts/download_weights.py` places the open ones
+# and prints where a licensed user drops the proprietary Protenix v2 weights.
 weights:
-  - name: rfd3_base
-    url: "TBD"
-    sha256: "TBD"
-    dest: rfd3/base.ckpt
-  - name: rfd3_ellipsoid
-    url: "TBD"
-    sha256: "TBD"
-    dest: rfd3/ellipsoid.ckpt
-  - name: proteinmpnn_base
-    url: "TBD"
-    sha256: "TBD"
-    dest: proteinmpnn/base.pt
+  - name: boltz2
+    license: MIT
+    open: true
+    method: auto          # Boltz downloads to its cache on first `boltz predict`
+    dest: boltz2
+  - name: proteinmpnn
+    license: MIT
+    open: true
+    method: in_repo       # ships inside packages/proteinmpnn fork
+    dest: proteinmpnn
+  - name: rfd3
+    license: BSD-3-Clause
+    open: true
+    method: foundry        # `foundry install rfd3`
+    dest: rfd3
+  - name: protenix_v1
+    license: Apache-2.0
+    open: true
+    method: auto           # `protenix` CLI auto-download (protenix_base_default_v1.0.0)
+    dest: protenix_v1
+  - name: protenix_v2
+    license: PROPRIETARY    # LICENSED ONLY — not downloaded, never committed; place here if licensed
+    open: false
+    method: manual
+    dest: protenix_v2
+  - name: esm2
+    license: MIT
+    open: true
+    method: auto           # huggingface facebook/esm2_* on first use
+    dest: esm2

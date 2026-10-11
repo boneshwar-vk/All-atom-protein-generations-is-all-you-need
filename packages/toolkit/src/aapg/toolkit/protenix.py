@@ -51,6 +51,21 @@ def _reduce_summary_pae(value: Any, how: str) -> float:
     return float(np.nanmin(arr) if how == "min" else np.nanmean(arr))
 
 
+def _to_plddt100(value: float) -> float:
+    """Normalise a scalar pLDDT to the 0-100 scale (×100 if it looks like a 0-1 value)."""
+    return value * 100.0 if 0.0 <= value <= 1.0 else value
+
+
+def _plddt_array_100(arr: Any) -> Any:
+    """Normalise a per-residue pLDDT array to 0-100 (×100 if it looks like a 0-1 scale)."""
+    import numpy as np
+
+    a = np.asarray(arr, dtype=float)
+    if a.size and float(np.nanmax(a)) <= 1.0:
+        return a * 100.0
+    return a
+
+
 @SCORERS.register("protenix_v2")
 class ProtenixScorer(Scorer):
     """Fold a binder/target complex with Protenix v2 and score the interface."""
@@ -64,6 +79,7 @@ class ProtenixScorer(Scorer):
         n_step: int = 200,
         n_cycle: int = 10,
         work_dir: str | None = None,
+        weights_dir: str | None = None,
         **kwargs: Any,
     ) -> None:
         self.model_name = model_name
@@ -71,7 +87,25 @@ class ProtenixScorer(Scorer):
         self.n_step = n_step
         self.n_cycle = n_cycle
         self.work_dir = work_dir
+        # Protenix v2 weights are proprietary and must be supplied by a licensed user here; v1
+        # (Apache-2.0) auto-downloads. See configs/scorer/protenix.yaml.
+        self.weights_dir = weights_dir
         self.extra = kwargs
+
+    def _check_licensed_weights(self) -> None:
+        """Fail loudly if a v2 run has no licensed weights in place (never silently wrong)."""
+        from pathlib import Path
+
+        is_v2 = "v2" in self.model_name or self.model_name == "protenix-v2"
+        if not is_v2:
+            return
+        wd = self.weights_dir
+        if not wd or not Path(wd).is_dir() or not any(Path(wd).iterdir()):
+            raise RuntimeError(
+                "Protenix v2 weights are proprietary and were not found. Set scorer.weights_dir "
+                f"to your licensed v2 weights (looked in {wd!r}), or use the default open Boltz-2 "
+                "backend ('boltz2'), or Protenix v1 (model_name=protenix_base_default_v1.0.0)."
+            )
 
     # -- sequence extraction -------------------------------------------------------------
     def _sequences_from_structure(self, path: str, chains: tuple[str, ...]) -> dict[str, str]:
@@ -193,6 +227,7 @@ class ProtenixScorer(Scorer):
 
         from aapg.toolkit.ipsae import compute_ipsae
 
+        self._check_licensed_weights()
         base = Path(self.work_dir) if self.work_dir else Path.cwd() / "protenix_runs"
         out_dir = base / (candidate.name or "aapg_complex")
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -206,7 +241,7 @@ class ProtenixScorer(Scorer):
         # Protenix build; reduce robustly to a scalar either way.
         ipae_min = _reduce_summary_pae(summary.get("chain_pair_pae_min"), "min")
         ipae_mean = _reduce_summary_pae(summary.get("chain_pair_pae_mean"), "mean")
-        complex_plddt = float(summary.get("plddt", 0.0))
+        complex_plddt = _to_plddt100(float(summary.get("plddt", 0.0)))
         has_clash = float(summary.get("has_clash", 0.0))
 
         pae = np.asarray(full["token_pair_pae"], dtype=float)
@@ -216,6 +251,7 @@ class ProtenixScorer(Scorer):
         # guard raises loudly if that assumption is violated rather than scoring silently wrong.
         token_chain = [str(c) for c in full.get("token_asym_id", [])]
         coords, cif_chains, res_plddt = self._residue_repr_from_cif(cif_path)
+        res_plddt = _plddt_array_100(res_plddt)
         chains = token_chain if len(token_chain) == pae.shape[0] else cif_chains
 
         ipsae = compute_ipsae(pae, coords, chains, res_plddt)

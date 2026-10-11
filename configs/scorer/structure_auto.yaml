@@ -1,0 +1,8 @@
+# Auto structure backend (DEFAULT): Boltz-2 (open, MIT) unless licensed Protenix v2 weights are
+# present, in which case Protenix v2 is used automatically. See configs/scorer/boltz2.yaml and
+# configs/scorer/protenix.yaml for the per-backend settings.
+name: structure_auto
+boltz_weights_dir: ${paths.weights_dir}/boltz2
+protenix_weights_dir: ${paths.weights_dir}/protenix_v2   # place licensed v2 weights here to auto-enable
+boltz_cfg: {}
+protenix_cfg: {}

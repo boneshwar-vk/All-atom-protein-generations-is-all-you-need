@@ -162,6 +162,7 @@ tools = [
 requires-dist = [
     { name = "aapg-core", editable = "packages/core" },
     { name = "biopython", marker = "extra == 'tools'" },
+    { name = "boltz", marker = "python_full_version < '3.11' and extra == 'tools'" },
     { name = "gemmi", marker = "extra == 'tools'" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "onnxruntime", marker = "extra == 'tools'" },

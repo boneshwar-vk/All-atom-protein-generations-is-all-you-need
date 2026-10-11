@@ -19,14 +19,17 @@ dependencies = [
 # (protenix/onnxruntime pull large GPU/ML stacks).
 tools = [
     "biopython",   # isoelectric point via Bio.SeqUtils.ProtParam (rosetta scorer).
-    "gemmi",       # structure / mmCIF parsing (protenix scorer).
+    "gemmi",       # structure / mmCIF parsing (boltz / protenix scorers).
     "polars",      # tabular post-processing of scorer outputs.
     "onnxruntime",  # ONNX inference for sequence-model adapters.
-    # Protenix and PyRosetta are declared here for documentation but pinned behind a never-true
-    # marker (requires-python is >=3.11) so uv's universal lock does NOT pull their very heavy
-    # stacks (torch/CUDA for protenix; a licensed non-PyPI wheel for pyrosetta) into uv.lock.
-    # Install them out-of-band at generation time: protenix via `pip install protenix` or its
-    # container; PyRosetta from the licensed RosettaCommons channel (conda / graylab wheel).
+    # boltz (default structure backend, MIT, open weights), protenix (licensed v2 alternative)
+    # and PyRosetta are declared here for documentation but pinned behind a never-true marker
+    # (requires-python is >=3.11) so uv's universal lock does NOT pull their very heavy stacks
+    # (torch/CUDA for boltz & protenix; a licensed non-PyPI wheel for pyrosetta) into uv.lock.
+    # Install out-of-band at generation time: `pip install boltz` (weights auto-download, MIT);
+    # protenix via `pip install protenix` + licensed v2 weights; PyRosetta from the licensed
+    # RosettaCommons channel.
+    "boltz ; python_full_version < '3.11'",
     "protenix ; python_full_version < '3.11'",
     "pyrosetta ; python_full_version < '3.11'",
 ]
