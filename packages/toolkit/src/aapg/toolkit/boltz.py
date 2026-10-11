@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -182,59 +183,116 @@ class BoltzScorer(Scorer):
             raise RuntimeError(f"boltz prediction failed: {exc.stderr}") from exc
 
     def _read_outputs(self, out_dir: Path) -> tuple[dict[str, Any], Any, str]:
-        """Load the confidence JSON, the PAE array and the predicted CIF."""
+        """Load the confidence JSON, PAE array and CIF for the SAME predicted model.
+
+        Boltz names its files ``confidence_<stem>.json`` / ``pae_<stem>.npz`` / ``<stem>.cif`` per
+        sampled model (``<stem>`` ends in ``_model_<i>``; ``model_0`` is Boltz's top-ranked
+        prediction). Picking each glob's first match independently could mix files from different
+        samples when ``diffusion_samples > 1``; instead select the best-ranked confidence file and
+        derive the PAE and CIF from its stem so all three describe one structure.
+        """
         import numpy as np
 
         conf_files = sorted(out_dir.rglob(_CONFIDENCE_GLOB))
-        pae_files = sorted(out_dir.rglob(_PAE_GLOB))
-        cif_files = sorted(out_dir.rglob("*.cif"))
-        if not conf_files or not pae_files or not cif_files:
-            raise RuntimeError(f"boltz outputs not found under {out_dir}")
-        confidence = json.loads(conf_files[0].read_text())
-        pae_npz = np.load(pae_files[0])
-        pae = pae_npz[pae_npz.files[0]]
-        return confidence, pae, str(cif_files[0])
+        if not conf_files:
+            raise RuntimeError(f"boltz confidence output not found under {out_dir}")
+        # Prefer model_0 (top-ranked); fall back to the lexicographically first confidence file.
+        conf_path = next((p for p in conf_files if "model_0" in p.name), conf_files[0])
+        stem = conf_path.name[len("confidence_") : -len(".json")]
 
-    def _residue_repr_from_cif(self, cif_path: str) -> tuple[Any, list[str], Any]:
-        """Per-residue representative coords, chain ids and pLDDT (from B-factor) via gemmi."""
+        pae_path = conf_path.with_name(f"pae_{stem}.npz")
+        cif_path = conf_path.with_name(f"{stem}.cif")
+        if not pae_path.exists():  # fall back to any matching PAE under the run dir
+            pae_candidates = sorted(out_dir.rglob(_PAE_GLOB))
+            if not pae_candidates:
+                raise RuntimeError(f"boltz PAE output not found under {out_dir}")
+            pae_path = pae_candidates[0]
+        if not cif_path.exists():
+            cif_candidates = sorted(out_dir.rglob("*.cif"))
+            if not cif_candidates:
+                raise RuntimeError(f"boltz CIF output not found under {out_dir}")
+            cif_path = cif_candidates[0]
+
+        confidence = json.loads(conf_path.read_text())
+        pae_npz = np.load(pae_path)
+        pae = pae_npz[pae_npz.files[0]]
+        return confidence, pae, str(cif_path)
+
+    def _residue_repr_from_cif(self, cif_path: str) -> tuple[Any, Any, list[str], Any]:
+        """Per-residue coords, chain ids and pLDDT via gemmi.
+
+        Returns ``(repr_coords, ca_coords, chain_ids, plddt)``. ``repr_coords`` is the CB (CA for
+        glycine / when CB is absent) used for interface-distance in ipSAE; ``ca_coords`` is the CA
+        **only**, used for scRMSD against the designed CA backbone (a CB trace would inflate the
+        RMSD). A residue is counted only if it has a CA (true for every amino acid), so the two
+        arrays and the chain/pLDDT lists stay index-aligned.
+        """
         import gemmi  # pragma: no cover - requires gemmi
         import numpy as np
 
         structure = gemmi.read_structure(cif_path)
         model = structure[0]
-        coords: list[list[float]] = []
+        repr_coords: list[list[float]] = []
+        ca_coords: list[list[float]] = []
         chain_ids: list[str] = []
         plddt: list[float] = []
         for chain in model:
             for res in chain:
-                atom = res.find_atom("CB", "*") or res.find_atom("CA", "*")
-                if atom is None:
+                ca = res.find_atom("CA", "*")
+                if ca is None:
                     continue
-                coords.append([atom.pos.x, atom.pos.y, atom.pos.z])
+                rep = res.find_atom("CB", "*") or ca
+                repr_coords.append([rep.pos.x, rep.pos.y, rep.pos.z])
+                ca_coords.append([ca.pos.x, ca.pos.y, ca.pos.z])
                 chain_ids.append(chain.name)
-                plddt.append(float(atom.b_iso))
-        return np.asarray(coords, dtype=float), chain_ids, np.asarray(plddt, dtype=float)
+                plddt.append(float(ca.b_iso))
+        return (
+            np.asarray(repr_coords, dtype=float),
+            np.asarray(ca_coords, dtype=float),
+            chain_ids,
+            np.asarray(plddt, dtype=float),
+        )
 
     def score(self, candidate: Candidate) -> Score:
-        from aapg.toolkit.ipsae import compute_ipsae, interface_pae
+        from aapg.toolkit.ipsae import compute_ipsae, entity_order_index, interface_pae
 
-        base = Path(self.work_dir) if self.work_dir else Path.cwd() / "boltz_runs"
-        out_dir = base / (candidate.name or "aapg_complex")
-        out_dir.mkdir(parents=True, exist_ok=True)
+        # At GRPO scale (thousands of complexes) Boltz outputs would fill the disk, and everything
+        # needed downstream (confidence, PAE, coordinates) is parsed into memory below. So unless
+        # the caller pins a persistent work_dir, run under a TemporaryDirectory that is removed
+        # once parsed. When work_dir IS set the outputs persist (and cif_path/out_dir stay valid).
+        ephemeral = self.work_dir is None
+        tmp = tempfile.TemporaryDirectory(prefix="aapg_boltz_") if ephemeral else None
+        base = Path(tmp.name) if tmp is not None else Path(self.work_dir)  # type: ignore[arg-type]
+        try:
+            out_dir = base / (candidate.name or "aapg_complex")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            input_path = self._write_input_yaml(candidate, out_dir)
+            self._run_boltz(input_path, out_dir)
+            confidence, pae, cif_path = self._read_outputs(out_dir)
+            repr_coords, ca_coords, chains, res_plddt = self._residue_repr_from_cif(cif_path)
+            out_dir_str: str | None = None if ephemeral else str(out_dir)
+            cif_str: str | None = None if ephemeral else cif_path
+        finally:
+            if tmp is not None:
+                tmp.cleanup()
 
-        input_path = self._write_input_yaml(candidate, out_dir)
-        self._run_boltz(input_path, out_dir)
-        confidence, pae, cif_path = self._read_outputs(out_dir)
+        import numpy as np
 
         iptm = _reduce(confidence.get("iptm"), "mean")
         # Boltz reports complex_plddt on a 0-1 scale; normalise to 0-100 so it is comparable
         # across backends and matches the reward's complex_plddt gate (min 80).
         complex_plddt = _to_plddt100(_reduce(confidence.get("complex_plddt"), "mean"))
-        has_clash = float(confidence.get("has_clash", 0.0) or 0.0)
 
-        coords, chains, res_plddt = self._residue_repr_from_cif(cif_path)
-        res_plddt = _plddt_array_100(res_plddt)
-        ipsae = compute_ipsae(pae, coords, chains, res_plddt)
+        # The token PAE is in input-entity order (target chains, then binder); permute the
+        # CIF-derived per-residue arrays to that same order before pairing them with the PAE,
+        # so ipSAE and the interface-PAE block index the right residues.
+        order = entity_order_index(chains, (*candidate.target_chains, *candidate.binder_chains))
+        repr_coords = repr_coords[order] if repr_coords.size else repr_coords
+        ca_coords = ca_coords[order] if ca_coords.size else ca_coords
+        chains = [chains[i] for i in order.tolist()]
+        res_plddt = _plddt_array_100(res_plddt[order] if res_plddt.size else res_plddt)
+
+        ipsae = compute_ipsae(pae, repr_coords, chains, res_plddt)
 
         # Interface PAE from the cross-chain block of the token PAE (shared with Protenix).
         ipae_min, ipae_mean = interface_pae(
@@ -243,26 +301,31 @@ class BoltzScorer(Scorer):
 
         # Predicted binder CA trace -> enables a REAL scRMSD (designed backbone vs this
         # prediction) in the selection pipeline, which reads metadata["predicted_ca_coords"].
-        import numpy as np
-
+        # Use the CA-only trace (not the CB representative) so it is comparable to the designed
+        # backbone CA coordinates.
         chain_arr = np.asarray(chains)
         binder_mask = np.isin(chain_arr, list(candidate.binder_chains))
-        predicted_ca = coords[binder_mask] if binder_mask.any() else coords
+        predicted_ca = ca_coords[binder_mask] if binder_mask.any() else ca_coords
+
+        values: dict[str, float] = {
+            "ipsae": float(ipsae["ipsae"]),
+            "iptm": iptm,
+            "ipae_min": ipae_min,
+            "ipae_mean": ipae_mean,
+            "complex_plddt": complex_plddt,
+        }
+        # Only emit has_clash when Boltz actually reports it: defaulting a missing field to 0.0
+        # would fake a "no clash" pass through the reward's hard clash gate (vacuously true).
+        if "has_clash" in confidence and confidence.get("has_clash") is not None:
+            values["has_clash"] = float(confidence["has_clash"])
 
         return Score(
-            values={
-                "ipsae": float(ipsae["ipsae"]),
-                "iptm": iptm,
-                "ipae_min": ipae_min,
-                "ipae_mean": ipae_mean,
-                "complex_plddt": complex_plddt,
-                "has_clash": has_clash,
-            },
+            values=values,
             metadata={
                 "scorer": self.name,
                 "model": self.model,
-                "out_dir": str(out_dir),
-                "cif_path": cif_path,
+                "out_dir": out_dir_str,  # None when run under a cleaned-up temp dir
+                "cif_path": cif_str,  # None when ephemeral (file already removed)
                 "ipsae_pairs": {k: v for k, v in ipsae.items() if "_" in k},
                 "predicted_ca_coords": predicted_ca,
             },

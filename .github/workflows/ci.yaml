@@ -30,7 +30,8 @@ jobs:
         run: |
           uv run mypy packages/core/src packages/toolkit/src \
             packages/rfd3_ellipsoid/src packages/grpo_steer/src \
-            packages/mpnn_iter/src packages/validation/src packages/pipelines/src
+            packages/mpnn_iter/src packages/validation/src packages/pipelines/src \
+            packages/rfdiffusion3/src packages/proteinmpnn/src packages/score_head/src
 
       - name: Test
         run: uv run pytest

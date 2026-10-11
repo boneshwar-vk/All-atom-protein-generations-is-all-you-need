@@ -32,7 +32,13 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["calc_d0_array", "calc_d0", "compute_ipsae", "interface_pae"]
+__all__ = [
+    "calc_d0_array",
+    "calc_d0",
+    "compute_ipsae",
+    "interface_pae",
+    "entity_order_index",
+]
 
 # pDockQ CB-CB contact distance cutoff in Angstrom (Bryant et al. 2022).
 PDOCKQ_CONTACT_CUTOFF = 8.0
@@ -67,6 +73,22 @@ def calc_d0(length: float, min_value: float = 1.0) -> float:
 def _ptm(pae: np.ndarray, d0: float | np.ndarray) -> np.ndarray:
     """TM-score-like transform of the PAE: ``1 / (1 + (pae / d0) ** 2)``."""
     return 1.0 / (1.0 + (pae / d0) ** 2)
+
+
+def entity_order_index(chain_ids: Sequence[Any], entity_order: Sequence[str]) -> np.ndarray:
+    """Permutation that groups ``chain_ids`` into ``entity_order`` (e.g. target, then binder).
+
+    Structure predictors index their token-pair PAE in input-entity order, but a CIF written back
+    out is not guaranteed to list chains in that same order. Reordering the per-residue arrays
+    (and, for a token-indexed PAE whose own order is unknown, the PAE itself) to one canonical
+    entity order before pairing them keeps ipSAE / interface-PAE indexing the correct residues.
+    The sort is stable within a chain (residue order preserved); chains not named in
+    ``entity_order`` sort last, in their original order.
+    """
+    rank = {c: i for i, c in enumerate(entity_order)}
+    ids = list(chain_ids)
+    order = sorted(range(len(ids)), key=lambda j: (rank.get(ids[j], len(rank)), j))
+    return np.asarray(order, dtype=int)
 
 
 def interface_pae(

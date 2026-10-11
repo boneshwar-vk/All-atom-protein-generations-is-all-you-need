@@ -22,7 +22,7 @@ def build_candidate(
     sequence: str,
     target: Target,
     name: str,
-    binder_chains: tuple[str, ...] = ("A",),
+    binder_chains: tuple[str, ...] | None = None,
 ) -> Candidate:
     """Thread ``sequence`` onto ``backbone`` and pose it against ``target`` as a candidate.
 
@@ -37,11 +37,38 @@ def build_candidate(
         sequence: the designed binder sequence to thread onto it.
         target: the fixed target the binder is scored against.
         name: human-readable identifier for logging and provenance.
-        binder_chains: chain IDs assigned to the designed binder.
+        binder_chains: chain IDs assigned to the designed binder. When omitted, the chains the
+            sampler recorded in ``backbone.metadata["binder_chains"]`` are used as the single
+            source of truth (falling back to ``("A",)`` only for legacy backbones that predate
+            that metadata).
 
     Returns:
         A :class:`Candidate` ready to be passed to any registered scorer.
+
+    Raises:
+        ValueError: if the resolved binder chains overlap the target chains, are empty, or (v1
+            limitation) span more than one chain.
     """
+    if binder_chains is None:
+        recorded = backbone.metadata.get("binder_chains")
+        binder_chains = tuple(recorded) if recorded else ("A",)
+    binder_chains = tuple(binder_chains)
+
+    if not binder_chains:
+        raise ValueError(f"candidate {name!r} has no binder chains")
+    overlap = set(binder_chains) & set(target.chains)
+    if overlap:
+        raise ValueError(
+            f"candidate {name!r} binder chains {binder_chains} overlap target chains "
+            f"{tuple(target.chains)!r}: {sorted(overlap)}"
+        )
+    if len(binder_chains) > 1:
+        raise NotImplementedError(
+            f"candidate {name!r} has a multi-chain binder {binder_chains}; the v1 GRPO pipeline "
+            "threads a single designed sequence onto one binder chain. Multi-chain binders need "
+            "per-chain sequence assignment (not yet implemented)."
+        )
+
     metadata: dict[str, Any] = {
         "backbone_path": backbone.path,
         "backbone_length": backbone.length,

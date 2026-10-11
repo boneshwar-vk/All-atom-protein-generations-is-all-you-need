@@ -69,6 +69,14 @@ def parse_pdb_ca(
             continue
         if line[12:16].strip() != "CA":
             continue
+        # Exclude calcium ions (atom name "CA", element "CA"): keep only carbon CA (the
+        # protein backbone CA, element "C"). If the element column is absent, only trust ATOM.
+        element = line[76:78].strip().upper() if len(line) >= 78 else ""
+        if element:
+            if element != "C":
+                continue
+        elif not line.startswith("ATOM"):
+            continue
         chain = line[21].strip() or "A"
         if (include is not None and chain not in include) or chain in exclude:
             continue
@@ -233,6 +241,20 @@ class RFD3Sampler:
         backbones: list[Backbone] = []
         for i, pdb in enumerate(pdbs):
             ca, _chains = parse_pdb_ca(str(pdb), exclude_chains=tuple(target.chains))
+            # The actual binder chain ids as RFD3 wrote them, in first-seen order, are the single
+            # source of truth downstream (build_candidate / selection must not re-guess them).
+            binder_chains = tuple(dict.fromkeys(_chains))
+            if not binder_chains:
+                raise RuntimeError(
+                    f"RFD3 output {pdb} has no binder chain (every CA chain is in the target "
+                    f"chains {tuple(target.chains)!r}); cannot build a binder candidate."
+                )
+            overlap = set(binder_chains) & set(target.chains)
+            if overlap:  # pragma: no cover - defensive; parse_pdb_ca already excludes target
+                raise RuntimeError(
+                    f"binder chains {binder_chains} overlap target chains "
+                    f"{tuple(target.chains)!r} in {pdb}: {sorted(overlap)}"
+                )
             backbones.append(
                 Backbone(
                     path=str(pdb),
@@ -241,6 +263,7 @@ class RFD3Sampler:
                         "seed": seed,
                         "index": i,
                         "target_chains": tuple(target.chains),
+                        "binder_chains": binder_chains,
                         "hotspots": tuple(target.hotspots),
                         "ca_coords": ca,
                     },
@@ -259,6 +282,12 @@ class MockRFD3Sampler(RFD3Sampler):
 
     def sample_backbones(self, target: Target, n: int, seed: int = 0, **cfg: Any) -> list[Backbone]:
         length = int(target.binder_length)
+        # Pick a deterministic single binder chain id disjoint from the target chains, so the mock
+        # exposes the same metadata["binder_chains"] contract as the real sampler.
+        binder_chain = next(
+            (c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if c not in set(target.chains)),
+            "Z",
+        )
         backbones: list[Backbone] = []
         for i in range(n):
             rng = np.random.default_rng(seed=(seed * 1_000_003 + i))
@@ -276,6 +305,7 @@ class MockRFD3Sampler(RFD3Sampler):
                         "seed": seed,
                         "index": i,
                         "target_chains": tuple(target.chains),
+                        "binder_chains": (binder_chain,),
                         "hotspots": tuple(target.hotspots),
                         "ca_coords": ca_coords,
                     },

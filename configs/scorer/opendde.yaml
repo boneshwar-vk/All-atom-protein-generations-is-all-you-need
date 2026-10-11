@@ -1,4 +1,7 @@
-# OpenDDE scorer config (used by validation) (placeholder).
+# OpenDDE scorer config (module 3 validation pipeline) -- PLACEHOLDER, NOT YET WIRED.
+# There is no `opendde` entry in the SCORERS registry yet (no adapter under packages/), so this
+# file is a forward-looking stub: referencing `scorer=opendde` will fail until the validation
+# module lands its adapter. Kept here to pin the intended config shape (container + mode).
 name: opendde
 container: aapg/opendde:latest
 mode: binding   # binding | stability

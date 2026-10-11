@@ -26,6 +26,9 @@ multirun/
 wandb/
 mlruns/
 *.log
+# Structure-predictor scratch (scorers default to a temp dir, but a pinned work_dir may land here)
+boltz_runs/
+protenix_runs/
 
 # Data & weights (tracked only via manifests; weights themselves are never committed)
 data/*

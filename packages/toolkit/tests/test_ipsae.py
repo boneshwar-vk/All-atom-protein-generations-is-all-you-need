@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from aapg.toolkit.ipsae import calc_d0, calc_d0_array, compute_ipsae
+from aapg.toolkit.ipsae import (
+    calc_d0,
+    calc_d0_array,
+    compute_ipsae,
+    entity_order_index,
+    interface_pae,
+)
 
 
 def _two_chain_system(ab_pae: float) -> dict:
@@ -95,3 +102,37 @@ def test_ipsae_single_chain_returns_zeros() -> None:
     assert res["ipsae"] == 0.0
     assert res["iptm_d0chn"] == 0.0
     assert res["max"]["ipsae"] == 0.0
+
+
+def test_interface_pae_uses_only_cross_chain_block() -> None:
+    # Intra-chain PAE is 0; only the A<->B block is non-zero, so the interface min/mean must come
+    # from that block and NOT be diluted to ~0 by the (large) intra-chain diagonal.
+    chains = ["A", "A", "B", "B"]
+    pae = np.zeros((4, 4))
+    pae[0:2, 2:4] = np.array([[3.0, 5.0], [7.0, 9.0]])
+    pae[2:4, 0:2] = np.array([[3.0, 5.0], [7.0, 9.0]])
+    ipae_min, ipae_mean = interface_pae(pae, chains, binder_chains=["A"], target_chains=["B"])
+    assert ipae_min == 3.0
+    assert ipae_mean == pytest.approx(6.0)  # mean of 3,5,7,9 (each direction equal)
+
+
+def test_interface_pae_raises_on_missing_chain() -> None:
+    # A binder/target chain absent from the structure is an alignment bug, never a 0 A interface.
+    chains = ["A", "A", "A"]
+    with pytest.raises(ValueError, match="not both present"):
+        interface_pae(np.zeros((3, 3)), chains, binder_chains=["A"], target_chains=["B"])
+
+
+def test_interface_pae_raises_on_misaligned_pae() -> None:
+    with pytest.raises(ValueError, match="square and aligned"):
+        interface_pae(np.zeros((3, 4)), ["A", "B", "B"], binder_chains=["A"], target_chains=["B"])
+
+
+def test_entity_order_index_groups_binder_after_target() -> None:
+    # CIF order interleaves the chains; the permutation must group target (B) then binder (A),
+    # stable within each chain.
+    chains = ["A", "B", "A", "B", "B"]
+    order = entity_order_index(chains, entity_order=("B", "A"))
+    assert [chains[i] for i in order.tolist()] == ["B", "B", "B", "A", "A"]
+    # Within a chain, original residue order is preserved (indices 1,3,4 for B; 0,2 for A).
+    assert order.tolist() == [1, 3, 4, 0, 2]

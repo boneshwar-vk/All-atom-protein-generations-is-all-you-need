@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -173,70 +174,118 @@ class ProtenixScorer(Scorer):
             raise RuntimeError(f"protenix prediction failed: {exc.stderr}") from exc
 
     def _read_outputs(self, out_dir: Path) -> tuple[dict[str, Any], dict[str, Any], str]:
-        """Locate and load the summary JSON, full-data JSON and prediction CIF."""
+        """Locate and load the summary JSON, full-data JSON and CIF for the SAME sample.
+
+        Protenix emits one ``*_summary_confidence_*.json``, ``*_full_data_*.json`` and ``*.cif``
+        per (seed, sample). Picking each glob independently could mix files from different seeds
+        when several are requested; instead choose one summary file and match the full-data JSON
+        and CIF that share its ``<prefix>`` (the text before ``_summary_confidence_``), falling
+        back to the first available file only when no stem match exists.
+        """
         summary_files = sorted(out_dir.rglob(_SUMMARY_GLOB))
         full_files = sorted(out_dir.rglob(_FULL_GLOB))
         cif_files = sorted(out_dir.rglob("*.cif"))
         if not summary_files or not full_files or not cif_files:
             raise RuntimeError(f"protenix outputs not found under {out_dir}")
-        summary = json.loads(summary_files[0].read_text())
-        full = json.loads(full_files[0].read_text())
-        return summary, full, str(cif_files[0])
 
-    def _residue_repr_from_cif(self, cif_path: str) -> tuple[Any, list[str], Any]:
-        """Read per-residue representative coords, chain ids and pLDDT from a CIF (lazy gemmi).
+        summary_path = summary_files[0]
+        prefix = summary_path.name.split("_summary_confidence_")[0]
+        full_path = next((p for p in full_files if p.name.startswith(prefix)), full_files[0])
+        cif_path = next((p for p in cif_files if p.name.startswith(prefix)), cif_files[0])
 
-        One representative atom per residue (CB, or CA for glycine). Protenix writes per-atom
-        pLDDT (0-100) into the B-factor column, so the representative atom's B-factor is the
-        residue pLDDT used by pDockQ. Returned arrays share one residue-axis length.
+        summary = json.loads(summary_path.read_text())
+        full = json.loads(full_path.read_text())
+        return summary, full, str(cif_path)
+
+    def _residue_repr_from_cif(self, cif_path: str) -> tuple[Any, Any, list[str], Any]:
+        """Read per-residue coords, chain ids and pLDDT from a CIF (lazy gemmi).
+
+        Returns ``(repr_coords, ca_coords, chain_ids, plddt)``. ``repr_coords`` is the CB (CA for
+        glycine / when CB is absent) used for ipSAE interface distances; ``ca_coords`` is the CA
+        **only**, used for scRMSD against the designed CA backbone. A residue is counted only if
+        it has a CA, so the arrays stay index-aligned. Protenix writes per-atom pLDDT (0-100) into
+        the B-factor column, so the CA B-factor is the residue pLDDT used by pDockQ.
         """
         import gemmi  # pragma: no cover - requires gemmi
         import numpy as np
 
         structure = gemmi.read_structure(cif_path)
         model = structure[0]
-        coords: list[list[float]] = []
+        repr_coords: list[list[float]] = []
+        ca_coords: list[list[float]] = []
         chain_ids: list[str] = []
         plddt: list[float] = []
         for chain in model:
             for res in chain:
-                atom = res.find_atom("CB", "*") or res.find_atom("CA", "*")
-                if atom is None:
+                ca = res.find_atom("CA", "*")
+                if ca is None:
                     continue
-                coords.append([atom.pos.x, atom.pos.y, atom.pos.z])
+                rep = res.find_atom("CB", "*") or ca
+                repr_coords.append([rep.pos.x, rep.pos.y, rep.pos.z])
+                ca_coords.append([ca.pos.x, ca.pos.y, ca.pos.z])
                 chain_ids.append(chain.name)
-                plddt.append(float(atom.b_iso))
-        return np.asarray(coords, dtype=float), chain_ids, np.asarray(plddt, dtype=float)
+                plddt.append(float(ca.b_iso))
+        return (
+            np.asarray(repr_coords, dtype=float),
+            np.asarray(ca_coords, dtype=float),
+            chain_ids,
+            np.asarray(plddt, dtype=float),
+        )
 
     def score(self, candidate: Candidate) -> Score:
         import numpy as np
 
-        from aapg.toolkit.ipsae import compute_ipsae, interface_pae
+        from aapg.toolkit.ipsae import compute_ipsae, entity_order_index, interface_pae
 
         self._check_licensed_weights()
-        base = Path(self.work_dir) if self.work_dir else Path.cwd() / "protenix_runs"
-        out_dir = base / (candidate.name or "aapg_complex")
-        out_dir.mkdir(parents=True, exist_ok=True)
 
-        input_path = self._build_input_json(candidate, out_dir)
-        self._run_protenix(input_path, out_dir)
-        summary, full, cif_path = self._read_outputs(out_dir)
+        # Everything needed downstream is parsed into memory below, so unless the caller pins a
+        # persistent work_dir, run under a TemporaryDirectory that is removed once parsed -- at
+        # GRPO scale the per-complex outputs would otherwise fill the disk.
+        ephemeral = self.work_dir is None
+        tmp = tempfile.TemporaryDirectory(prefix="aapg_protenix_") if ephemeral else None
+        base = Path(tmp.name) if tmp is not None else Path(self.work_dir)  # type: ignore[arg-type]
+        try:
+            out_dir = base / (candidate.name or "aapg_complex")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            input_path = self._build_input_json(candidate, out_dir)
+            self._run_protenix(input_path, out_dir)
+            summary, full, cif_path = self._read_outputs(out_dir)
+            repr_coords, ca_coords, cif_chains, res_plddt = self._residue_repr_from_cif(cif_path)
+            out_dir_str: str | None = None if ephemeral else str(out_dir)
+            cif_str: str | None = None if ephemeral else cif_path
+        finally:
+            if tmp is not None:
+                tmp.cleanup()
 
         iptm = float(summary.get("iptm", 0.0))
         complex_plddt = _to_plddt100(float(summary.get("plddt", 0.0)))
-        has_clash = float(summary.get("has_clash", 0.0) or 0.0)
 
         pae = np.asarray(full["token_pair_pae"], dtype=float)
-        # token_asym_id is aligned to the PAE token axis, so it is the authoritative chain map
-        # for the PAE-indexed metrics. coords/pLDDT come from the CIF (residue axis); for a
-        # standard protein complex the token and residue axes are 1:1 and compute_ipsae's length
-        # guard raises loudly if that assumption is violated rather than scoring silently wrong.
-        token_chain = [str(c) for c in full.get("token_asym_id", [])]
-        coords, cif_chains, res_plddt = self._residue_repr_from_cif(cif_path)
         res_plddt = _plddt_array_100(res_plddt)
-        chains = token_chain if len(token_chain) == pae.shape[0] else cif_chains
 
-        ipsae = compute_ipsae(pae, coords, chains, res_plddt)
+        # token_asym_id is aligned to the PAE token axis, so it is the authoritative chain map for
+        # the PAE-indexed metrics. The CIF arrays are on the residue axis; for a standard protein
+        # complex the two axes are 1:1 but NOT necessarily in the same chain order, so reorder
+        # BOTH the token axis (PAE + token chains) and the CIF arrays to one canonical entity order
+        # (target chains, then binder) before pairing them. compute_ipsae's length guard raises
+        # loudly if the 1:1 assumption is violated rather than scoring silently wrong.
+        token_chain = [str(c) for c in full.get("token_asym_id", [])]
+        entity_order = (*candidate.target_chains, *candidate.binder_chains)
+        if len(token_chain) == pae.shape[0]:
+            tok = entity_order_index(token_chain, entity_order)
+            pae = pae[np.ix_(tok, tok)]
+            chains = [token_chain[i] for i in tok.tolist()]
+        else:
+            # No usable token map: fall back to CIF chain order for the PAE axis.
+            chains = cif_chains
+        cif_order = entity_order_index(cif_chains, entity_order)
+        repr_coords = repr_coords[cif_order] if repr_coords.size else repr_coords
+        ca_coords = ca_coords[cif_order] if ca_coords.size else ca_coords
+        res_plddt = res_plddt[cif_order] if res_plddt.size else res_plddt
+        cif_chains = [cif_chains[i] for i in cif_order.tolist()]
+
+        ipsae = compute_ipsae(pae, repr_coords, chains, res_plddt)
         # Interface iPAE from the token PAE cross-chain block (same helper as Boltz, so the
         # ipae gates mean the same thing across backends; this avoids the chain_pair_pae summary
         # which includes intra-chain diagonal blocks that dilute the mean / zero the min).
@@ -244,22 +293,33 @@ class ProtenixScorer(Scorer):
             pae, chains, candidate.binder_chains, candidate.target_chains
         )
 
+        # Predicted binder CA trace (CA-only, comparable to the designed backbone) for scRMSD.
+        chain_arr = np.asarray(cif_chains)
+        binder_mask = np.isin(chain_arr, list(candidate.binder_chains))
+        predicted_ca = ca_coords[binder_mask] if binder_mask.any() else ca_coords
+
+        values: dict[str, float] = {
+            "ipsae": float(ipsae["ipsae"]),
+            "iptm": iptm,
+            "ipae_min": ipae_min,
+            "ipae_mean": ipae_mean,
+            "complex_plddt": complex_plddt,
+        }
+        # Only emit has_clash when Protenix actually reports it: a defaulted 0.0 would fake a
+        # "no clash" pass through the reward's hard clash gate.
+        if "has_clash" in summary and summary.get("has_clash") is not None:
+            values["has_clash"] = float(summary["has_clash"])
+
         return Score(
-            values={
-                "ipsae": float(ipsae["ipsae"]),
-                "iptm": iptm,
-                "ipae_min": ipae_min,
-                "ipae_mean": ipae_mean,
-                "complex_plddt": complex_plddt,
-                "has_clash": has_clash,
-            },
+            values=values,
             metadata={
                 "scorer": self.name,
                 "model_name": self.model_name,
                 "seeds": list(self.seeds),
-                "out_dir": str(out_dir),
-                "cif_path": cif_path,
+                "out_dir": out_dir_str,  # None when run under a cleaned-up temp dir
+                "cif_path": cif_str,  # None when ephemeral (file already removed)
                 "ipsae_pairs": {k: v for k, v in ipsae.items() if "_" in k},
+                "predicted_ca_coords": predicted_ca,
             },
         )
 

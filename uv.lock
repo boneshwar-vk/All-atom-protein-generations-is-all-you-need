@@ -894,6 +894,12 @@ wheels = [
 name = "rfdiffusion3"
 version = "0.0.0"
 source = { editable = "packages/rfdiffusion3" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=1.26" }]
 
 [[package]]
 name = "ruff"

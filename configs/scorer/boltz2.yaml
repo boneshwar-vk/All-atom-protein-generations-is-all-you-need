@@ -7,3 +7,13 @@ weights_dir: ${paths.weights_dir}/boltz2   # optional local cache; null/unset =>
 recycling_steps: 3
 diffusion_samples: 1
 container: aapg/boltz2:latest
+
+# KNOWN LIMITATION (single-sequence folding). use_msa defaults to false: at GRPO scale (thousands
+# of complexes) an MSA server is impractical and non-deterministic, and binder design typically
+# runs single-sequence. The trade-off is that the fixed TARGET is also folded without an MSA and
+# may misfold for MSA-dependent targets, biasing every interface metric for that run. Mitigations:
+#   - set use_msa: true to let Boltz build MSAs (adds --use_msa_server; slower, needs network);
+#   - or supply a target template/precomputed MSA for your Boltz build via extra_args.
+# Templating is left to the user (it is build-specific and untestable here) -- this is documented
+# rather than silently assumed correct.
+use_msa: false

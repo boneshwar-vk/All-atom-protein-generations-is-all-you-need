@@ -5,8 +5,10 @@ description = "Vendored fork of RFdiffusion3 (RFD3). Edited upstream for ellipso
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    # Upstream RFD3 deps (torch, etc.) are declared when the source is actually vendored.
-    # See VENDORING.md for the procedure.
+    # The adapter parses PDB CA traces into numpy arrays at import time (adapter.py), so numpy is
+    # a hard dependency. Upstream RFD3 deps (torch, etc.) are declared when the source is actually
+    # vendored -- see VENDORING.md for the procedure.
+    "numpy>=1.26",
 ]
 
 [build-system]

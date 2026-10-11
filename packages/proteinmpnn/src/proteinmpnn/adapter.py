@@ -112,43 +112,46 @@ class MPNNDesigner:
                 "Use get_designer(mock=True) for CPU dry runs."
             )
 
-        out_dir = Path(tempfile.mkdtemp(prefix="aapg_mpnn_"))
-        cmd = [
-            self.python,
-            str(run_script),
-            "--pdb_path",
-            str(pdb_path),
-            "--pdb_path_chains",
-            " ".join(binder_chains),
-            "--path_to_model_weights",
-            str(weights_dir),
-            "--model_name",
-            self.model_name,
-            "--out_folder",
-            str(out_dir),
-            "--num_seq_per_target",
-            str(n_seqs),
-            "--sampling_temp",
-            str(self.temperature),
-            "--seed",
-            str(seed),
-            "--batch_size",
-            "1",
-        ]
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=str(vendor))
-        except FileNotFoundError as exc:  # pragma: no cover - interpreter missing
-            raise RuntimeError(f"could not launch ProteinMPNN with {self.python!r}") from exc
-        except subprocess.CalledProcessError as exc:  # pragma: no cover - requires torch
-            raise RuntimeError(
-                "ProteinMPNN run failed (is torch installed in this interpreter?):\n"
-                + (exc.stderr or "")[-2000:]
-            ) from exc
+        # The designed sequences are parsed into memory below, so the run outputs are transient;
+        # a TemporaryDirectory keeps them from accumulating across thousands of GRPO designs.
+        with tempfile.TemporaryDirectory(prefix="aapg_mpnn_") as tmp:
+            out_dir = Path(tmp)
+            cmd = [
+                self.python,
+                str(run_script),
+                "--pdb_path",
+                str(pdb_path),
+                "--pdb_path_chains",
+                " ".join(binder_chains),
+                "--path_to_model_weights",
+                str(weights_dir),
+                "--model_name",
+                self.model_name,
+                "--out_folder",
+                str(out_dir),
+                "--num_seq_per_target",
+                str(n_seqs),
+                "--sampling_temp",
+                str(self.temperature),
+                "--seed",
+                str(seed),
+                "--batch_size",
+                "1",
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=str(vendor))
+            except FileNotFoundError as exc:  # pragma: no cover - interpreter missing
+                raise RuntimeError(f"could not launch ProteinMPNN with {self.python!r}") from exc
+            except subprocess.CalledProcessError as exc:  # pragma: no cover - requires torch
+                raise RuntimeError(
+                    "ProteinMPNN run failed (is torch installed in this interpreter?):\n"
+                    + (exc.stderr or "")[-2000:]
+                ) from exc
 
-        fastas = sorted((out_dir / "seqs").glob("*.fa"))
-        if not fastas:
-            raise RuntimeError(f"ProteinMPNN produced no sequences under {out_dir}/seqs")
-        return _parse_mpnn_fasta(fastas[0])[:n_seqs]
+            fastas = sorted((out_dir / "seqs").glob("*.fa"))
+            if not fastas:
+                raise RuntimeError(f"ProteinMPNN produced no sequences under {out_dir}/seqs")
+            return _parse_mpnn_fasta(fastas[0])[:n_seqs]
 
 
 class MockMPNNDesigner(MPNNDesigner):

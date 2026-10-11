@@ -24,6 +24,15 @@ def test_mock_sampler_deterministic_with_ca_coords():
     assert np.allclose(a[0].metadata["ca_coords"], b[0].metadata["ca_coords"])
 
 
+def test_mock_sampler_records_binder_chains_disjoint_from_target():
+    # The sampler is the single source of truth for binder chain ids; the mock must expose a
+    # binder chain disjoint from the target chains under metadata["binder_chains"].
+    bb = MockRFD3Sampler().sample_backbones(Target(chains=("A", "B"), binder_length=10), n=1)[0]
+    binder = bb.metadata["binder_chains"]
+    assert binder == ("C",)  # first letter not in the target chains
+    assert not set(binder) & {"A", "B"}
+
+
 def test_parse_pdb_ca_filters_chains():
     pdb = (
         "ATOM      1  N   ALA A   1      11.000  11.000  11.000  1.00  0.00           N\n"

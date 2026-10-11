@@ -11,8 +11,9 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: []
-        # Type-check only our source; skip vendored forks (tracked as-is).
-        files: ^packages/(core|toolkit|rfd3_ellipsoid|grpo_steer|mpnn_iter|validation|pipelines)/src/
+        # Type-check our source; the vendored ProteinMPNN fork is excluded via mypy's own
+        # `exclude = ['/vendor/']` in pyproject.toml, so packages/proteinmpnn/src is safe to list.
+        files: ^packages/(core|toolkit|rfd3_ellipsoid|grpo_steer|mpnn_iter|validation|pipelines|rfdiffusion3|proteinmpnn|score_head)/src/
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -23,3 +24,6 @@ repos:
       - id: check-toml
       - id: check-added-large-files
         args: [--maxkb=1024]
+        # The vendored ProteinMPNN weights (~6.7 MB each, MIT-licensed) are intentionally
+        # committed as plain git blobs; exempt them from the large-file guard.
+        exclude: ^packages/proteinmpnn/src/proteinmpnn/vendor/.*\.pt$

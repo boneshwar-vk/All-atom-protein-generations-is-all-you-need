@@ -162,10 +162,40 @@ class SelectionPipeline:
         )
         designed = candidate.metadata.get("backbone_ca_coords")
         if predicted is not None and designed is not None:
-            merged.values["scrmsd"] = self_consistency_rmsd(
-                np.asarray(designed, dtype=float), predicted
-            )
+            try:
+                merged.values["scrmsd"] = self_consistency_rmsd(
+                    np.asarray(designed, dtype=float), predicted
+                )
+            except Exception as exc:  # noqa: BLE001 - fail closed, don't crash the round
+                # A shape mismatch or degenerate superposition must not kill the batch; record a
+                # non-finite scRMSD so the reward's hard gate rejects this candidate (fail-closed).
+                merged.values["scrmsd"] = float("inf")
+                merged.metadata.setdefault("scrmsd_error", str(exc))
         return merged
+
+    def _backbone_reward(self, seq_scores: list[Score]) -> float:
+        """Reduce the per-sequence scores for one backbone to a single scalar reward.
+
+        For best-of-N selection (the default ``max`` aggregation) a backbone's reward is the
+        MAX REWARD over its sequences -- each sequence is gated and scored independently, so a
+        high-ipSAE sequence that fails a hard gate (e.g. a clash) cannot mask a
+        slightly-lower-ipSAE sequence that passes every gate, which is the one a designer would
+        actually keep. (Aggregating the scores first and then rewarding, as an earlier version
+        did, would reward the ungated max-ipSAE sequence and silently misrank the backbone.) The
+        ``mean`` / ``topk`` strategies instead average the per-sequence scores and reward the
+        aggregate, giving a smoother, less greedy backbone signal.
+        """
+        if not seq_scores:
+            return self.reward([])
+        if self.aggregate == "max":
+            return max(self.reward([s]) for s in seq_scores)
+        representative = aggregate_sequences(
+            seq_scores,
+            how=self.aggregate,
+            primary=getattr(self.reward, "primary", "ipsae"),
+            top_k=self.aggregate_top_k,
+        )
+        return self.reward([representative])
 
     # -- one round -----------------------------------------------------------------------
     def _run_round(self, target: Target, round_idx: int, seed: int) -> list[dict[str, Any]]:
@@ -178,19 +208,24 @@ class SelectionPipeline:
         backbone_reward: list[float] = []
         backbone_rows: list[list[dict[str, Any]]] = []
         for b_idx, backbone in enumerate(backbones):
+            # Binder chain ids are whatever the sampler actually wrote (its metadata is the single
+            # source of truth); fall back to the configured default only for legacy backbones.
+            recorded = backbone.metadata.get("binder_chains")
+            binder_chains = tuple(recorded) if recorded else self.binder_chains
             sequences = self.designer.design(
                 backbone,
                 n_seqs=self.seqs_per_backbone,
-                binder_chains=self.binder_chains,
+                binder_chains=binder_chains,
                 target_chains=target.chains,
                 seed=seed,
             )
             seq_scores: list[Score] = []
             rows: list[dict[str, Any]] = []
             for s_idx, sequence in enumerate(sequences):
-                name = f"r{round_idx}_b{b_idx:04d}_s{s_idx:02d}"
+                # Seed is in the name so per-candidate adapter work dirs are unique across rounds.
+                name = f"r{round_idx}_s{seed}_b{b_idx:04d}_seq{s_idx:02d}"
                 candidate = build_candidate(
-                    backbone, sequence, target, name=name, binder_chains=self.binder_chains
+                    backbone, sequence, target, name=name, binder_chains=binder_chains
                 )
                 score = self._candidate_score(candidate)
                 seq_scores.append(score)
@@ -203,13 +238,7 @@ class SelectionPipeline:
                         **{m: score.values.get(m) for m in METRIC_COLUMNS},
                     }
                 )
-            representative = aggregate_sequences(
-                seq_scores,
-                how=self.aggregate,
-                primary=getattr(self.reward, "primary", "ipsae"),
-                top_k=self.aggregate_top_k,
-            )
-            backbone_reward.append(self.reward([representative]))
+            backbone_reward.append(self._backbone_reward(seq_scores))
             backbone_rows.append(rows)
 
         # Group-relative advantage over backbones, chunked into groups of group_size.

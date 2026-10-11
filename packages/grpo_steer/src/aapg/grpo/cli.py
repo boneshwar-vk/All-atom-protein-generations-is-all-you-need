@@ -179,6 +179,26 @@ def _run_hydra() -> int:  # pragma: no cover - exercised only when hydra is inst
         if isinstance(model_group, dict) and model_group.get("checkpoint"):
             sampler_cfg.setdefault("checkpoint", model_group["checkpoint"])
         trainer_cfg["sampler"] = sampler_cfg
+
+        # Thread the dedicated `scorer` group so it is not dead config: its `cascade` /
+        # `scorer_cfg` (configs/scorer/*.yaml) take precedence over the copies in `steering`,
+        # letting `scorer=boltz2` on the CLI actually pick the backend.
+        scorer_group = container.get("scorer") or {}
+        if isinstance(scorer_group, dict):
+            if scorer_group.get("cascade"):
+                trainer_cfg["cascade"] = scorer_group["cascade"]
+            if scorer_group.get("scorer_cfg"):
+                merged = dict(trainer_cfg.get("scorer_cfg") or {})
+                merged.update(scorer_group["scorer_cfg"])
+                trainer_cfg["scorer_cfg"] = merged
+
+        # Thread the `designer` group (ProteinMPNN kwargs) so it reaches the designer adapter.
+        designer_group = container.get("designer") or {}
+        if isinstance(designer_group, dict) and designer_group:
+            designer_cfg = dict(trainer_cfg.get("designer") or {})
+            designer_cfg.update(designer_group)
+            trainer_cfg["designer"] = designer_cfg
+
         GRPOTrainer(trainer_cfg).run()
 
     _app()
