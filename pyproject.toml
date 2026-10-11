@@ -31,6 +31,8 @@ dev = [
 line-length = 100
 target-version = "py311"
 src = ["packages/*/src"]
+# Vendored upstream source (kept verbatim) is not linted/formatted to our style.
+extend-exclude = ["packages/*/src/**/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -43,6 +45,8 @@ python_version = "3.11"
 namespace_packages = true
 explicit_package_bases = true
 ignore_missing_imports = true
+# Do not type-check vendored upstream code.
+exclude = ['/vendor/']
 
 [tool.pytest.ini_options]
 testpaths = ["packages", "tests"]

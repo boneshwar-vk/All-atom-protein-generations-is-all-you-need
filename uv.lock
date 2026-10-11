@@ -797,6 +797,13 @@ name = "proteinmpnn"
 version = "0.0.0"
 source = { editable = "packages/proteinmpnn" }
 
+[package.metadata]
+requires-dist = [
+    { name = "numpy", marker = "python_full_version < '3.11' and extra == 'run'" },
+    { name = "torch", marker = "python_full_version < '3.11' and extra == 'run'" },
+]
+provides-extras = ["run"]
+
 [[package]]
 name = "protobuf"
 version = "6.31.1"

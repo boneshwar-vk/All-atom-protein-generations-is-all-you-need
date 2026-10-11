@@ -1,9 +1,16 @@
-"""proteinmpnn — vendored fork of ProteinMPNN (placeholder).
+"""proteinmpnn — vendored fork of ProteinMPNN.
 
-The real upstream source has NOT been vendored yet. When it is, it replaces this module and
-keeps this import name (``proteinmpnn``). Local modifications for the iterative optimization
-loop (module 4) are applied on top and recorded in the repo-root ``VENDORING.md``.
+The upstream ProteinMPNN source and its (small, MIT-licensed) model weights are vendored under
+:mod:`proteinmpnn.vendor` (see the repo-root ``VENDORING.md`` for the exact commit). The GRPO
+sequence-design step uses them through :mod:`proteinmpnn.adapter`.
+
+Importing this package stays light: the vendored modules import torch/numpy at module load, so
+they are imported lazily by the adapter (never here). Module 4 (iterative ProteinMPNN) will edit
+the vendored source directly.
 """
 
+from __future__ import annotations
+
 __version__ = "0.0.0"
-__vendored__ = False
+# Upstream source + weights are vendored (dauparas/ProteinMPNN, MIT). See VENDORING.md.
+__vendored__ = True

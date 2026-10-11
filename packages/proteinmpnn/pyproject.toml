@@ -5,8 +5,18 @@ description = "Vendored fork of ProteinMPNN. Edited upstream for the iterative o
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    # Upstream ProteinMPNN deps (torch, etc.) are declared when the source is actually vendored.
-    # See VENDORING.md for the procedure.
+    # No hard runtime deps: the vendored model is driven as a SUBPROCESS by adapter.py, so the
+    # torch/numpy it needs live in that subprocess's interpreter, not this package's import path.
+]
+
+[project.optional-dependencies]
+# ProteinMPNN's own requirements, needed by the interpreter that runs the vendored
+# protein_mpnn_run.py. Pinned behind a never-true marker (requires-python >=3.11) so uv's
+# universal lock does not pull the torch/CUDA stack; install out-of-band (`pip install torch
+# numpy`) on the GPU box, or run the ProteinMPNN container.
+run = [
+    "torch ; python_full_version < '3.11'",
+    "numpy ; python_full_version < '3.11'",
 ]
 
 [build-system]
@@ -15,3 +25,5 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/proteinmpnn"]
+# Ship the vendored weights (git-ignored by the global *.pt rule) with the wheel.
+artifacts = ["src/proteinmpnn/vendor/**/*.pt"]

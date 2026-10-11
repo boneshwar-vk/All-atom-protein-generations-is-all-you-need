@@ -39,6 +39,9 @@ data/weights/*
 *.pth
 *.npz
 *.h5
+# Exception: the vendored ProteinMPNN weights ARE committed (small, MIT-licensed). See
+# VENDORING.md and packages/proteinmpnn/LICENSE.
+!packages/proteinmpnn/src/proteinmpnn/vendor/**/*.pt
 
 # Editors / OS
 .idea/

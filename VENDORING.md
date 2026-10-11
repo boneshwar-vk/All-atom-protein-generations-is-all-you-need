@@ -40,4 +40,4 @@ cp /tmp/rfd3-src/LICENSE packages/rfdiffusion3/LICENSE
 | Package | Upstream URL | Commit SHA | Date vendored | Local modifications |
 |---------|--------------|-----------|---------------|---------------------|
 | rfdiffusion3 | _TBD_ | _TBD_ | _not yet vendored_ | placeholder package only |
-| proteinmpnn  | _TBD_ | _TBD_ | _not yet vendored_ | placeholder package only |
+| proteinmpnn  | https://github.com/dauparas/ProteinMPNN | 8907e6671bfbfc92303b5f79c4b5e6ce47cdef57 | 2026-10-11 | Source + vanilla/soluble weights copied unmodified into `src/proteinmpnn/vendor/` (excluded: examples/, inputs/, outputs/, training/, colab_notebooks/, ca_model_weights/). LICENSE (MIT, © 2022 Justas Dauparas) preserved at `packages/proteinmpnn/LICENSE`. Driven as a subprocess by `adapter.py`; upstream code unchanged. |
