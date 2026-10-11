@@ -1,0 +1,24 @@
+[project]
+name = "aapg-score-head"
+version = "0.0.0"
+description = "Module 5 (placeholder): learned structure->score head predicting complex scores directly, a fast surrogate for the MPNN -> Protenix -> Rosetta chain."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aapg-core",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# The real head needs torch; it is imported lazily, so this package imports, registers its
+# scorer, and runs its deterministic CPU mock without it. torch is pinned behind a never-true
+# marker (requires-python is >=3.11) so uv's universal lock does not pull its large GPU stack;
+# install it out-of-band (`pip install torch`, or the module's container) to train/run for real.
+train = ["torch ; python_full_version < '3.11'"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aapg"]

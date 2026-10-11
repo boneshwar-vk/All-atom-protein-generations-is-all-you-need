@@ -16,6 +16,7 @@ aapg-grpo = { workspace = true }
 aapg-mpnn-iter = { workspace = true }
 aapg-validation = { workspace = true }
 aapg-pipelines = { workspace = true }
+aapg-score-head = { workspace = true }
 
 # Dev tooling shared across the whole workspace.
 [dependency-groups]

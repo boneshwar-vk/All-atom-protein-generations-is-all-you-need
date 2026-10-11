@@ -17,6 +17,7 @@ members = [
     "aapg-grpo",
     "aapg-mpnn-iter",
     "aapg-pipelines",
+    "aapg-score-head",
     "aapg-toolkit",
     "aapg-validation",
     "proteinmpnn",
@@ -122,6 +123,23 @@ requires-dist = [
     { name = "aapg-mpnn-iter", editable = "packages/mpnn_iter" },
     { name = "aapg-validation", editable = "packages/validation" },
 ]
+
+[[package]]
+name = "aapg-score-head"
+version = "0.0.0"
+source = { editable = "packages/score_head" }
+dependencies = [
+    { name = "aapg-core" },
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aapg-core", editable = "packages/core" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "torch", marker = "python_full_version < '3.11' and extra == 'train'" },
+]
+provides-extras = ["train"]
 
 [[package]]
 name = "aapg-toolkit"

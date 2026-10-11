@@ -1,0 +1,7 @@
+# Learned structure->score head scorer (module 5). Swap this into configs/steering/grpo.yaml's
+# `cascade` (e.g. `cascade: [structure_head]`) for the fast path that bypasses ProteinMPNN and
+# Protenix v2. (placeholder)
+name: structure_head
+checkpoint: ???        # path to the trained head; required for the real scorer
+# targets: the scores the head predicts (defaults to the module's DEFAULT_TARGETS when unset)
+container: aapg/score-head:latest

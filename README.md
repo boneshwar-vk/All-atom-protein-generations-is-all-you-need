@@ -14,6 +14,7 @@ shared infrastructure that lets them compose into one end-to-end pipeline.
 | 2 | `packages/rfd3_ellipsoid` | `aapg.ellipsoid`  | **Ellipsoid-constrained RFD3** — ProtComposer-style conditioning of RFD3 on 3D ellipsoid layouts, for on-target and off-target specification. |
 | 3 | `packages/validation`     | `aapg.validation` | **Validation pipeline** — backbones → ProteinMPNN → Protenix v2 → OpenDDE → verdict. |
 | 4 | `packages/mpnn_iter`      | `aapg.mpnn_iter`  | **Iterative ProteinMPNN** — a modified ProteinMPNN that loops sequence optimization against Rosetta and other sequence scorers. |
+| 5 | `packages/score_head`     | `aapg.score_head` | **Learned structure→score head** — predicts complex scores directly from structure (a fast surrogate for MPNN → Protenix v2 → Rosetta); fast path `RFD3 → score head → scores`. |
 
 They chain into one flow:
 
@@ -35,6 +36,7 @@ packages/
   grpo_steer/      aapg.grpo      module 1
   mpnn_iter/       aapg.mpnn_iter module 4
   validation/      aapg.validation module 3
+  score_head/      aapg.score_head module 5 (learned structure->score surrogate)
   pipelines/       aapg.pipelines end-to-end orchestration
 configs/           global Hydra config tree (consumed by every entrypoint)
 containers/        Docker + Apptainer definitions (one per heavy tool)

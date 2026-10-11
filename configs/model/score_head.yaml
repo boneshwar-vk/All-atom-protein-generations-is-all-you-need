@@ -1,0 +1,13 @@
+# Score-head model (module 5) (placeholder).
+name: score_head
+checkpoint: ${paths.weights_dir}/score_head/head.pt
+# Scores the head regresses (kept aligned with the GRPO reward metrics).
+targets:
+  - ipsae
+  - iptm
+  - ipae_min
+  - ipae_mean
+  - complex_plddt
+  - interface_dg
+  - shape_complementarity
+  - contact_molecular_surface
