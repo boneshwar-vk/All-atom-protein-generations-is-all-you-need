@@ -1,6 +1,18 @@
-# Diffusion sampler + guidance settings (placeholder).
+# RFdiffusion3 sampler settings. The adapter (rfdiffusion3.adapter.RFD3Sampler) drives the RFD3
+# CLI as a subprocess with Hydra-style overrides. RFD3's exact config KEYS are version-dependent,
+# so the design task is supplied via `spec` (a dict of Hydra key=value overrides for YOUR build)
+# and/or `extra_args`; the adapter handles running it and parsing the output complex PDBs.
+command: [rfd3]          # argv prefix, e.g. [rfd3] | [foundry, run, rfd3] | [python, -m, rfd3]
+# config_name: null      # optional Hydra --config-name
+# config_path: null      # optional Hydra --config-dir
+checkpoint: null         # RFD3 weights path (foundry install rfd3), else model default
+output_glob: "**/*.pdb"  # where generated structures land under the run dir
+spec: {}                 # version-specific Hydra overrides, e.g.:
+                         #   {"ppi.hotspot_res": "[A52,A56]", "contigmap.contigs": "..."}
+extra_args: []           # extra argv appended verbatim
+
+# Legacy diffusion/guidance knobs (kept for reference; map into `spec` for your RFD3 version).
 num_steps: 50
-num_samples: 8
 guidance:
   enabled: false
   scale: 1.0

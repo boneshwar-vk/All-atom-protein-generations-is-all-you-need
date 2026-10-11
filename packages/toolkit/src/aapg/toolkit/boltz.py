@@ -87,6 +87,8 @@ class BoltzScorer(Scorer):
         weights_dir: str | None = None,
         recycling_steps: int = 3,
         diffusion_samples: int = 1,
+        use_msa: bool = False,
+        extra_args: list[str] | None = None,
         work_dir: str | None = None,
         **kwargs: Any,
     ) -> None:
@@ -96,6 +98,11 @@ class BoltzScorer(Scorer):
         self.weights_dir = weights_dir
         self.recycling_steps = recycling_steps
         self.diffusion_samples = diffusion_samples
+        # Default to single-sequence (msa: empty): at GRPO scale (thousands of complexes) an MSA
+        # server is impractical and non-deterministic, and binder pipelines run single-sequence.
+        # Set use_msa=True to let Boltz build MSAs (adds --use_msa_server).
+        self.use_msa = use_msa
+        self.extra_args = list(extra_args or [])
         self.work_dir = work_dir
         self.extra = kwargs
 
@@ -135,6 +142,8 @@ class BoltzScorer(Scorer):
                 f"      id: {chain_id}",
                 f"      sequence: {seqs[chain_id]}",
             ]
+            if not self.use_msa:
+                lines.append("      msa: empty")  # single-sequence; no MSA server
         input_path = out_dir / "input.yaml"
         input_path.write_text("\n".join(lines) + "\n")
         return input_path
@@ -158,6 +167,9 @@ class BoltzScorer(Scorer):
         ]
         if self.weights_dir:
             cmd += ["--cache", self.weights_dir]
+        if self.use_msa:
+            cmd += ["--use_msa_server"]
+        cmd += self.extra_args
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
         except FileNotFoundError as exc:
@@ -229,6 +241,14 @@ class BoltzScorer(Scorer):
             pae, chains, candidate.binder_chains, candidate.target_chains
         )
 
+        # Predicted binder CA trace -> enables a REAL scRMSD (designed backbone vs this
+        # prediction) in the selection pipeline, which reads metadata["predicted_ca_coords"].
+        import numpy as np
+
+        chain_arr = np.asarray(chains)
+        binder_mask = np.isin(chain_arr, list(candidate.binder_chains))
+        predicted_ca = coords[binder_mask] if binder_mask.any() else coords
+
         return Score(
             values={
                 "ipsae": float(ipsae["ipsae"]),
@@ -244,6 +264,7 @@ class BoltzScorer(Scorer):
                 "out_dir": str(out_dir),
                 "cif_path": cif_path,
                 "ipsae_pairs": {k: v for k, v in ipsae.items() if "_" in k},
+                "predicted_ca_coords": predicted_ca,
             },
         )
 

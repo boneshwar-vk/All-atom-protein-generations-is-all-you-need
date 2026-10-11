@@ -31,7 +31,10 @@ Neither is done here; v1 never reads a log-prob.
 
 from __future__ import annotations
 
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -42,7 +45,40 @@ __all__ = [
     "RFD3Sampler",
     "MockRFD3Sampler",
     "get_sampler",
+    "parse_pdb_ca",
 ]
+
+
+def parse_pdb_ca(
+    path: str,
+    include_chains: tuple[str, ...] | None = None,
+    exclude_chains: tuple[str, ...] | None = None,
+) -> tuple[np.ndarray, list[str]]:
+    """Parse CA coordinates and their chain ids from a PDB file (stdlib, no heavy deps).
+
+    Reads fixed-column ``ATOM`` records, keeping one CA per residue. ``include_chains`` keeps only
+    those chains; ``exclude_chains`` drops them (used to isolate the binder = everything that is
+    not the target). Returns ``(coords (N,3), chain_ids length N)``.
+    """
+    include = set(include_chains) if include_chains else None
+    exclude = set(exclude_chains) if exclude_chains else set()
+    coords: list[list[float]] = []
+    chains: list[str] = []
+    for line in Path(path).read_text().splitlines():
+        if not line.startswith(("ATOM", "HETATM")):
+            continue
+        if line[12:16].strip() != "CA":
+            continue
+        chain = line[21].strip() or "A"
+        if (include is not None and chain not in include) or chain in exclude:
+            continue
+        try:
+            x, y, z = float(line[30:38]), float(line[38:46]), float(line[46:54])
+        except ValueError:  # pragma: no cover - malformed line
+            continue
+        coords.append([x, y, z])
+        chains.append(chain)
+    return np.asarray(coords, dtype=float), chains
 
 
 @dataclass
@@ -84,37 +120,133 @@ class Target:
 
 
 class RFD3Sampler:
-    """Sample binder backbones with the vendored RFdiffusion3 model.
+    """Sample binder backbones by driving the RFdiffusion3 (foundry) CLI as a subprocess.
 
-    The heavy backend is imported lazily in :meth:`sample_backbones`, so constructing the
-    sampler (and importing this module) never requires ``rfd3`` or model weights.
+    RFD3 ships via RosettaCommons/foundry and is configured with Hydra-style ``key=value``
+    overrides, so this adapter runs it out-of-process (no torch imported here) and parses the
+    generated complex structures. The adapter owns the mechanics it can get right -- running the
+    command, collecting the output PDBs, and extracting the binder CA trace -- while the exact
+    config KEYS for the target/hotspots/contig are **version-dependent** and supplied through
+    config, since RFD3 is new and its flag names must be matched to the installed build.
+
+    Config (``**cfg`` / constructor args):
+        command: argv prefix to invoke RFD3, e.g. ``["rfd3"]`` (default), ``["foundry", "run",
+            "rfd3"]`` or ``["python", "-m", "rfd3"]``.
+        config_name / config_path: optional Hydra ``--config-name`` / ``--config-dir`` to pass.
+        spec: dict of Hydra overrides describing the design task for YOUR RFD3 version, e.g.
+            ``{"ppi.hotspot_res": "[A52,A56]", "contigmap.contigs": ...}``. These keys are not
+            hardcoded because they differ across RFD3 releases.
+        overrides_fn: optional callable ``(target, n, seed, out_dir) -> list[str]`` that fully
+            builds the override list, if ``spec`` is not expressive enough.
+        extra_args: extra argv appended verbatim.
+        output_glob: glob for generated structures under the run dir (default ``**/*.pdb``).
+
+    The heavy stack lives in the subprocess interpreter; nothing here imports torch/rfd3.
     """
 
-    def __init__(self, checkpoint: str | None = None, **cfg: Any) -> None:
+    def __init__(
+        self,
+        checkpoint: str | None = None,
+        command: list[str] | None = None,
+        config_name: str | None = None,
+        config_path: str | None = None,
+        spec: dict[str, Any] | None = None,
+        overrides_fn: Any = None,
+        extra_args: list[str] | None = None,
+        output_glob: str = "**/*.pdb",
+        work_dir: str | None = None,
+        **cfg: Any,
+    ) -> None:
         self.checkpoint = checkpoint
+        self.command = list(command) if command else ["rfd3"]
+        self.config_name = config_name
+        self.config_path = config_path
+        self.spec: dict[str, Any] = dict(spec or {})
+        self.overrides_fn = overrides_fn
+        self.extra_args = list(extra_args or [])
+        self.output_glob = output_glob
+        self.work_dir = work_dir
         self.cfg = cfg
 
+    def _build_command(self, target: Target, n: int, seed: int, out_dir: Path) -> list[str]:
+        """Assemble the RFD3 argv (Hydra-style overrides). Override ``spec``/``overrides_fn``
+        to match your RFD3 version's exact config keys."""
+        cmd = list(self.command)
+        if self.config_path:
+            cmd += ["--config-dir", self.config_path]
+        if self.config_name:
+            cmd += ["--config-name", self.config_name]
+        if self.overrides_fn is not None:
+            overrides = list(self.overrides_fn(target, n, seed, out_dir))
+        else:
+            # Minimal, widely-needed knobs as Hydra overrides; the design SPEC (target pdb,
+            # hotspots, contig/binder length) comes from self.spec because its keys are
+            # version-dependent. These three names also vary across releases -- override `spec`
+            # (which is appended last and wins) if your build differs.
+            overrides = [
+                f"inference.num_designs={n}",
+                f"inference.output_prefix={out_dir / 'design'}",
+                f"inference.seed={seed}",
+            ]
+            if self.checkpoint:
+                overrides.append(f"inference.ckpt_path={self.checkpoint}")
+            if target.structure_path:
+                overrides.append(f"inference.input_pdb={target.structure_path}")
+            if target.hotspots:
+                overrides.append("ppi.hotspot_res=[" + ",".join(target.hotspots) + "]")
+            overrides.append(f"contigmap.length={target.binder_length}-{target.binder_length}")
+        overrides += [f"{k}={v}" for k, v in self.spec.items()]
+        return cmd + overrides + self.extra_args
+
     def sample_backbones(self, target: Target, n: int, seed: int = 0, **cfg: Any) -> list[Backbone]:
-        """Generate ``n`` backbones for ``target`` (lazy heavy import).
+        """Generate ``n`` binder backbones for ``target`` via the RFD3 CLI.
+
+        Returns one :class:`Backbone` per generated complex PDB, with the binder CA trace (every
+        chain NOT in ``target.chains``) stored in ``metadata["ca_coords"]`` for scRMSD.
 
         Raises:
-            RuntimeError: if the vendored ``rfd3`` package cannot be imported, with guidance on
-                vendoring RFD3 and providing weights.
+            RuntimeError: if the RFD3 command is missing/fails or produces no structures.
         """
+        base = Path(self.work_dir) if self.work_dir else Path(tempfile.mkdtemp(prefix="aapg_rfd3_"))
+        out_dir = base / f"seed{seed}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cmd = self._build_command(target, n, seed, out_dir)
         try:
-            from rfd3.model import inference_sampler  # type: ignore[import-not-found]  # noqa: F401
-        except ImportError as exc:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except FileNotFoundError as exc:
             raise RuntimeError(
-                "RFdiffusion3 is not available: could not import 'rfd3.model.inference_sampler'. "
-                "Vendor the upstream source with scripts/vendor_rfd3.sh and provide model "
-                "weights (set 'checkpoint'), or use get_sampler(mock=True) for CPU dry runs."
+                f"RFdiffusion3 command {self.command!r} not found. Install/vendor RFD3 "
+                "(scripts/vendor_rfd3.sh; `foundry install rfd3`) and set the adapter's "
+                "`command`, or use get_sampler(mock=True) for CPU dry runs."
             ) from exc
-        # Real sampling wiring is added when the RFD3 source is vendored; see the FUTURE-RL
-        # HOOK in the module docstring for the log-prob recording this call will grow.
-        raise NotImplementedError(
-            "RFD3Sampler.sample_backbones is wired up when rfd3 is vendored; the lazy import "
-            "above succeeded but the real sampling loop is not implemented in v1."
-        )
+        except subprocess.CalledProcessError as exc:  # pragma: no cover - requires rfd3
+            raise RuntimeError(
+                "RFdiffusion3 run failed (check the Hydra overrides match your version):\n"
+                + (exc.stderr or "")[-2000:]
+            ) from exc
+
+        pdbs = sorted(out_dir.glob(self.output_glob))
+        if not pdbs:
+            raise RuntimeError(
+                f"RFD3 produced no structures matching {self.output_glob!r} under {out_dir}"
+            )
+        backbones: list[Backbone] = []
+        for i, pdb in enumerate(pdbs):
+            ca, _chains = parse_pdb_ca(str(pdb), exclude_chains=tuple(target.chains))
+            backbones.append(
+                Backbone(
+                    path=str(pdb),
+                    length=int(ca.shape[0]),
+                    metadata={
+                        "seed": seed,
+                        "index": i,
+                        "target_chains": tuple(target.chains),
+                        "hotspots": tuple(target.hotspots),
+                        "ca_coords": ca,
+                    },
+                )
+            )
+        return backbones
 
 
 class MockRFD3Sampler(RFD3Sampler):
