@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+venv/
+env/
+
+# uv
+# (uv.lock IS committed; the virtualenv is not)
+
+# Experiment / run outputs
+experiments/**/outputs/
+experiments/**/logs/
+experiments/**/checkpoints/
+outputs/
+multirun/
+wandb/
+mlruns/
+*.log
+
+# Data & weights (tracked only via manifests)
+data/*
+!data/README.md
+*.pt
+*.ckpt
+*.pth
+*.npz
+*.h5
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

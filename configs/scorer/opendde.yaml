@@ -1,0 +1,4 @@
+# OpenDDE scorer config (used by validation) (placeholder).
+name: opendde
+container: aapg/opendde:latest
+mode: binding   # binding | stability

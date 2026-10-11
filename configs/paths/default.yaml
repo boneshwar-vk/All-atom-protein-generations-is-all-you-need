@@ -1,0 +1,6 @@
+# Filesystem roots. Override per machine/cluster. Placeholder values.
+root: ${oc.env:AAPG_ROOT,.}
+data_dir: ${paths.root}/data
+weights_dir: ${paths.root}/data/weights
+output_dir: ${paths.root}/experiments/outputs/${run_name}
+cache_dir: ${paths.root}/data/cache

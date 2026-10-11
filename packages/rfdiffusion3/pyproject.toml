@@ -1,0 +1,17 @@
+[project]
+name = "rfdiffusion3"
+version = "0.0.0"
+description = "Vendored fork of RFdiffusion3 (RFD3). Edited upstream for ellipsoid conditioning (module 2). Keeps the upstream import name."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Upstream RFD3 deps (torch, etc.) are declared when the source is actually vendored.
+    # See VENDORING.md for the procedure.
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rfdiffusion3"]

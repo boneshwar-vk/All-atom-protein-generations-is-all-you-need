@@ -1,0 +1,5 @@
+# Rosetta scorer config (used by iterative MPNN) (placeholder).
+name: rosetta
+container: aapg/rosetta:latest
+protocol: relax
+weights: ref2015

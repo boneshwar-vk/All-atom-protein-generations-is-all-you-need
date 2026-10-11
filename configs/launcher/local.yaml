@@ -1,0 +1,3 @@
+# Run locally on the current machine (placeholder).
+name: local
+num_gpus: 1

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: lint + type + test (CPU-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Type-check
+        run: |
+          uv run mypy packages/core/src packages/toolkit/src \
+            packages/rfd3_ellipsoid/src packages/grpo_steer/src \
+            packages/mpnn_iter/src packages/validation/src packages/pipelines/src
+
+      - name: Test
+        run: uv run pytest

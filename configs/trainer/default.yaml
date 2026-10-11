@@ -1,0 +1,12 @@
+# Training loop / optimizer / checkpointing (placeholder).
+max_steps: 10000
+grad_accum: 1
+checkpoint_every: 500
+log_every: 10
+optimizer:
+  name: adamw
+  lr: 1.0e-5
+  weight_decay: 0.0
+tracking:
+  backend: wandb   # wandb | mlflow | none
+  project: aapg

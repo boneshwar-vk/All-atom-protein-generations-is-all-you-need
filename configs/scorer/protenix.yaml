@@ -1,0 +1,4 @@
+# Protenix v2 scorer config (used by validation) (placeholder).
+name: protenix_v2
+container: aapg/protenix:latest
+num_recycles: 3

@@ -1,0 +1,31 @@
+# Local multi-service convenience for development (placeholder).
+# Each heavy tool runs as its own service so conflicting deps stay isolated.
+services:
+  rfd3:
+    build:
+      context: ..
+      dockerfile: containers/rfd3.Dockerfile
+    image: aapg/rfd3:latest
+    gpus: all
+  proteinmpnn:
+    build:
+      context: ..
+      dockerfile: containers/proteinmpnn.Dockerfile
+    image: aapg/proteinmpnn:latest
+    gpus: all
+  protenix:
+    build:
+      context: ..
+      dockerfile: containers/protenix.Dockerfile
+    image: aapg/protenix:latest
+    gpus: all
+  opendde:
+    build:
+      context: ..
+      dockerfile: containers/opendde.Dockerfile
+    image: aapg/opendde:latest
+  rosetta:
+    build:
+      context: ..
+      dockerfile: containers/rosetta.Dockerfile
+    image: aapg/rosetta:latest

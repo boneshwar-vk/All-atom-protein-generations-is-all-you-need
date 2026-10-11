@@ -1,0 +1,8 @@
+# SLURM launcher via hydra-submitit (placeholder).
+name: slurm
+partition: gpu
+gpus_per_node: 1
+cpus_per_task: 8
+mem_gb: 64
+timeout_min: 1440
+array_parallelism: 16

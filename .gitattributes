@@ -1,0 +1,13 @@
+# Opt-in git-LFS for large binary assets if/when LFS is enabled on the remote.
+# Model weights are normally fetched via scripts/download_weights.py, NOT committed.
+*.pt    filter=lfs diff=lfs merge=lfs -text
+*.pth   filter=lfs diff=lfs merge=lfs -text
+*.ckpt  filter=lfs diff=lfs merge=lfs -text
+*.npz   filter=lfs diff=lfs merge=lfs -text
+
+# Keep text files normalized.
+*.py    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf

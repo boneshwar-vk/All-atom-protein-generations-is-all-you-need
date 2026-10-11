@@ -1,0 +1,14 @@
+# @package _global_
+# Named end-to-end preset: ellipsoid-constrained + GRPO-steered generation ->
+# iterative MPNN design -> validation. Composes the module config groups. (placeholder)
+
+defaults:
+  - override /model: rfd3_ellipsoid
+  - override /ellipsoid: on_off_target
+  - override /steering: grpo
+  - override /reward: default
+  - override /pipeline: validation_default
+  - _self_
+
+run_name: end2end_demo
+seed: 0

@@ -1,0 +1,8 @@
+# Default scorer bundle available to rewards / validation / iterative MPNN (placeholder).
+# Each key names a registered scorer (aapg.core.scoring.SCORERS); values are its config.
+enabled:
+  - plddt
+  - clash
+plddt: {}
+clash:
+  threshold: 2.0

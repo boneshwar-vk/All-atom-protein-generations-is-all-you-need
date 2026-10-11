@@ -1,0 +1,8 @@
+# Iterative ProteinMPNN (module 4) (placeholder).
+name: mpnn_iter
+checkpoint: ${paths.weights_dir}/proteinmpnn/base.pt
+temperature: 0.1
+loop:
+  max_iters: 10
+  acceptance: anneal   # anneal | greedy | metropolis
+  patience: 3

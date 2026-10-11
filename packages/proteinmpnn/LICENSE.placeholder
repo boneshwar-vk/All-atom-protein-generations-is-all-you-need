@@ -1,0 +1,6 @@
+PLACEHOLDER — replace with the upstream ProteinMPNN LICENSE when the source is vendored.
+
+The upstream project's own license governs this package's vendored code. Do NOT assume the
+repository-root MIT license applies here. Copy the real upstream LICENSE (and any NOTICE /
+attribution file) into this directory as `LICENSE` at vendoring time, and record provenance in
+the repo-root VENDORING.md.

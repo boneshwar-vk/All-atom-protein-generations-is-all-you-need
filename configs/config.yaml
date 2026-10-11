@@ -1,0 +1,19 @@
+# Root Hydra config. Entrypoints compose from here; `experiment/` presets override groups.
+# Placeholder scaffold — groups list their options but values are illustrative defaults.
+
+defaults:
+  - paths: default
+  - model: rfd3
+  - sampler: default
+  - ellipsoid: none
+  - steering: grpo
+  - reward: default
+  - scorer: default
+  - pipeline: validation_default
+  - trainer: default
+  - launcher: local
+  - _self_
+
+seed: 0
+device: cuda
+run_name: ???   # set per run (or by an experiment preset)

@@ -1,0 +1,3 @@
+# Fast local debug run: tiny counts, CPU-friendly (placeholder).
+name: debug
+num_gpus: 0

@@ -1,0 +1,4 @@
+# ProteinMPNN base model (placeholder).
+name: proteinmpnn
+checkpoint: ${paths.weights_dir}/proteinmpnn/base.pt
+temperature: 0.1

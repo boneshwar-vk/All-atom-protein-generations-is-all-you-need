@@ -1,0 +1,15 @@
+# Model weights manifest (placeholder).
+# Each entry: name, url, sha256 (for integrity), dest (relative to data/weights/).
+weights:
+  - name: rfd3_base
+    url: "TBD"
+    sha256: "TBD"
+    dest: rfd3/base.ckpt
+  - name: rfd3_ellipsoid
+    url: "TBD"
+    sha256: "TBD"
+    dest: rfd3/ellipsoid.ckpt
+  - name: proteinmpnn_base
+    url: "TBD"
+    sha256: "TBD"
+    dest: proteinmpnn/base.pt

@@ -1,0 +1,6 @@
+# Example cluster path overrides (placeholder).
+root: ${oc.env:AAPG_ROOT,/scratch/aapg}
+data_dir: ${oc.env:AAPG_DATA,/datasets/aapg}
+weights_dir: ${paths.data_dir}/weights
+output_dir: ${oc.env:AAPG_OUTPUT,/scratch/aapg/outputs}/${run_name}
+cache_dir: ${paths.root}/cache

@@ -1,0 +1,6 @@
+# Diffusion sampler + guidance settings (placeholder).
+num_steps: 50
+num_samples: 8
+guidance:
+  enabled: false
+  scale: 1.0

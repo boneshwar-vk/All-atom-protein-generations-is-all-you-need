@@ -1,0 +1,50 @@
+# Virtual workspace root (not itself a package).
+# Each sub-project lives under packages/* and is independently installable.
+# See docs/architecture.md for the dependency graph.
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+# Resolve inter-package deps from the workspace instead of PyPI.
+[tool.uv.sources]
+aapg-core = { workspace = true }
+aapg-toolkit = { workspace = true }
+rfdiffusion3 = { workspace = true }
+proteinmpnn = { workspace = true }
+aapg-ellipsoid = { workspace = true }
+aapg-grpo = { workspace = true }
+aapg-mpnn-iter = { workspace = true }
+aapg-validation = { workspace = true }
+aapg-pipelines = { workspace = true }
+
+# Dev tooling shared across the whole workspace.
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pre-commit>=3.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["packages/*/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aapg", "rfdiffusion3", "proteinmpnn"]
+
+[tool.mypy]
+python_version = "3.11"
+namespace_packages = true
+explicit_package_bases = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "tests"]
+# importlib mode lets same-named test files (e.g. test_import.py in every package) coexist
+# without __init__.py files in each tests/ directory.
+addopts = "-q --import-mode=importlib"

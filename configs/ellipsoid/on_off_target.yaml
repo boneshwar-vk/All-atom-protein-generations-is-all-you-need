@@ -1,0 +1,11 @@
+# Example on-target / off-target ellipsoid layout (placeholder).
+enabled: true
+layout:
+  - target: on_target
+    center: [0.0, 0.0, 0.0]
+    radii: [10.0, 8.0, 8.0]
+    rotation: identity
+  - target: off_target
+    center: [25.0, 0.0, 0.0]
+    radii: [8.0, 8.0, 8.0]
+    rotation: identity

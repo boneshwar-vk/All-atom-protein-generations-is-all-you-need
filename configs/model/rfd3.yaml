@@ -1,0 +1,4 @@
+# RFDiffusion3 base model (placeholder).
+name: rfd3
+checkpoint: ${paths.weights_dir}/rfd3/base.ckpt
+# architecture / diffusion hyperparameters go here when the fork is vendored

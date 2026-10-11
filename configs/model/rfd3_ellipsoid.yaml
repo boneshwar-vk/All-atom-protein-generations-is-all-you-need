@@ -1,0 +1,6 @@
+# Ellipsoid-conditioned RFD3 (module 2) (placeholder).
+name: rfd3_ellipsoid
+checkpoint: ${paths.weights_dir}/rfd3/ellipsoid.ckpt
+conditioning:
+  enabled: true
+  # extra input channels / encoder settings for ellipsoid conditioning

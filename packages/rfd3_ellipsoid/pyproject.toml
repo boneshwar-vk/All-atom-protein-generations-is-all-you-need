@@ -1,0 +1,17 @@
+[project]
+name = "aapg-ellipsoid"
+version = "0.0.0"
+description = "Module 2: ellipsoid-constrained RFD3 — ProtComposer-style conditioning of RFDiffusion3 on 3D ellipsoids (on-target / off-target)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aapg-core",
+    "rfdiffusion3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aapg"]

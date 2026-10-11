@@ -1,0 +1,15 @@
+# Validation pipeline stage wiring (module 3) (placeholder).
+# Ordered stages; each names a tool adapter + its config.
+name: validation_default
+stages:
+  - stage: proteinmpnn
+    model: ${model}
+    num_seqs: 8
+  - stage: protenix_v2
+    config: ${scorer.protenix}
+  - stage: opendde
+    config: ${scorer.opendde}
+verdict:
+  # thresholds that turn stage outputs into a pass/fail verdict
+  min_plddt: 80.0
+  max_ddg: 0.0

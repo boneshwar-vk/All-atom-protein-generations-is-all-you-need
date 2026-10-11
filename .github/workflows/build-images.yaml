@@ -1,0 +1,23 @@
+name: Build container images
+
+# Build (and optionally push) the per-tool images on tags only — they are heavy and not needed
+# for every PR. Placeholder: wire up a registry + credentials before enabling push.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [base, rfd3, proteinmpnn, protenix, opendde, rosetta]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.image }}
+        run: |
+          docker build -f containers/${{ matrix.image }}.Dockerfile \
+            -t aapg/${{ matrix.image }}:${{ github.ref_name }} .
+      # - name: Push  (enable once a registry is configured)
+      #   run: docker push aapg/${{ matrix.image }}:${{ github.ref_name }}
