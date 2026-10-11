@@ -1,0 +1,5 @@
+# ipSAE interface-confidence metric config.
+# 10/10 (pae_cutoff / dist_cutoff, Angstrom) is the ipSAE-recommended default.
+name: ipsae
+pae_cutoff: 10
+dist_cutoff: 10

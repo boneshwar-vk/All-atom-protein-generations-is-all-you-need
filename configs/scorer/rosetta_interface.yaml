@@ -1,0 +1,6 @@
+# Rosetta (PyRosetta) interface scorer config (used by the iterative MPNN loop / validation).
+name: rosetta_interface
+relax: true
+relax_steps: 200
+relax_repeats: 2
+weights: ref2015

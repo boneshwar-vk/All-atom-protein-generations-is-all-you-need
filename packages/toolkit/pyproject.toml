@@ -6,8 +6,29 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aapg-core",
-    # Heavy/optional tool clients are added per-adapter; most tools run in their own container
-    # and are invoked via subprocess, so no heavy Python deps live here by default.
+    # numpy is a hard dependency: the pure-numpy ipSAE metric (aapg.toolkit.ipsae) needs it.
+    "numpy>=1.26",
+    # Other heavy/optional tool clients are declared under optional-dependencies 'tools';
+    # most tools run in their own container and are invoked via subprocess.
+]
+
+[project.optional-dependencies]
+# Heavy / externally-licensed backends for the concrete scorers, NOT installed by default.
+# Every one is imported lazily inside the scorer methods, so `import aapg.toolkit` and scorer
+# registration work without any of them (e.g. in CI). Versions are intentionally unpinned
+# (protenix/onnxruntime pull large GPU/ML stacks).
+tools = [
+    "biopython",   # isoelectric point via Bio.SeqUtils.ProtParam (rosetta scorer).
+    "gemmi",       # structure / mmCIF parsing (protenix scorer).
+    "polars",      # tabular post-processing of scorer outputs.
+    "onnxruntime",  # ONNX inference for sequence-model adapters.
+    # Protenix and PyRosetta are declared here for documentation but pinned behind a never-true
+    # marker (requires-python is >=3.11) so uv's universal lock does NOT pull their very heavy
+    # stacks (torch/CUDA for protenix; a licensed non-PyPI wheel for pyrosetta) into uv.lock.
+    # Install them out-of-band at generation time: protenix via `pip install protenix` or its
+    # container; PyRosetta from the licensed RosettaCommons channel (conda / graylab wheel).
+    "protenix ; python_full_version < '3.11'",
+    "pyrosetta ; python_full_version < '3.11'",
 ]
 
 [build-system]

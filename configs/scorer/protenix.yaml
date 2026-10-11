@@ -1,4 +1,8 @@
-# Protenix v2 scorer config (used by validation) (placeholder).
+# Protenix v2 scorer config (used by validation).
 name: protenix_v2
+model_name: protenix-v2
+seeds: [101]
+n_step: 200
+n_cycle: 10
+need_atom_confidence: true
 container: aapg/protenix:latest
-num_recycles: 3
