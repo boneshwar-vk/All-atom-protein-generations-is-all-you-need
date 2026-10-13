@@ -32,7 +32,7 @@ import numpy as np
 from aapg.core.scoring import Reward, Score, Scorer, combine_scores
 from aapg.grpo.advantage import group_relative_advantage
 from aapg.grpo.candidate import build_candidate
-from aapg.grpo.reward import aggregate_sequences, bound_satisfied
+from aapg.grpo.reward import aggregate_sequences, bound_satisfied, passed_hard_gates
 from aapg.grpo.scrmsd import self_consistency_rmsd
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 __all__ = ["SelectionPipeline", "METRIC_COLUMNS"]
 
-# The 10 scorer metrics + scRMSD, in recorded-column order.
+# The 10 scorer metrics + scRMSD + the clash flag, in recorded-column order.
 METRIC_COLUMNS = [
     "ipsae",
     "iptm",
@@ -53,14 +53,18 @@ METRIC_COLUMNS = [
     "contact_molecular_surface",
     "complex_plddt",
     "scrmsd",
+    "has_clash",  # recorded for provenance (it is a hard gate but was previously omitted here)
 ]
 
-# Non-metric columns that precede the metrics in the output table.
+# Non-metric columns that precede the metrics in the output table. ``seq_reward`` is the
+# PER-DESIGN absolute gated reward and the table's ranking key; ``reward`` (the backbone
+# aggregate) and ``advantage`` (group-relative z-score) are kept as diagnostics.
 _LEAD_COLUMNS = [
     "name",
     "binder_sequence",
     "round",
     "selected",
+    "seq_reward",
     "reward",
     "advantage",
     "backbone_path",
@@ -247,6 +251,7 @@ class SelectionPipeline:
                 seed=seed,
             )
             seq_scores: list[Score] = []
+            seq_rewards: list[float] = []
             rows: list[dict[str, Any]] = []
             for s_idx, sequence in enumerate(sequences):
                 # Seed is in the name so per-candidate adapter work dirs are unique across rounds.
@@ -256,43 +261,60 @@ class SelectionPipeline:
                 )
                 score = self._candidate_score(candidate)
                 seq_scores.append(score)
+                # PER-DESIGN absolute gated reward: this is what the final table ranks on, so the
+                # top rows are the genuinely-best individual designs (not a within-group z-score).
+                seq_reward = self.reward([score])
+                seq_rewards.append(seq_reward)
                 rows.append(
                     {
                         "name": name,
                         "binder_sequence": sequence,
                         "round": round_idx,
+                        "seq_reward": seq_reward,
                         "backbone_path": backbone.path,
                         **{m: score.values.get(m) for m in METRIC_COLUMNS},
                     }
                 )
-            backbone_reward.append(self._backbone_reward(seq_scores))
+            # Backbone aggregate: for the default `max` it is just the best per-sequence reward
+            # (reuse the values already computed); mean/topk average the scores first.
+            if self.aggregate == "max":
+                backbone_reward.append(max(seq_rewards) if seq_rewards else self.reward([]))
+            else:
+                backbone_reward.append(self._backbone_reward(seq_scores))
             backbone_rows.append(rows)
 
-        # Group-relative advantage over backbones, chunked into groups of group_size.
+        # Group-relative advantage over backbones (kept as a DIAGNOSTIC column for the future RL
+        # trainer; it is deliberately NOT the selection key -- see below).
         advantages = self._grouped_advantage(backbone_reward)
 
-        # Select the round's top-k backbones by (advantage, reward); these are the winners
-        # (kept / used to reseed the next round). top_k <= 0 selects all.
-        order = sorted(
-            range(len(backbone_reward)),
-            key=lambda i: (advantages[i], backbone_reward[i]),
-            reverse=True,
-        )
+        # Round winners = top-k backbones by ABSOLUTE backbone reward (best-of-N selection), not
+        # by group-relative advantage: advantage would float a weak-group "least-bad" backbone --
+        # even one whose every sequence fails a hard gate -- above a strong-group one.
+        order = sorted(range(len(backbone_reward)), key=lambda i: backbone_reward[i], reverse=True)
         n_sel = len(order) if self.top_k <= 0 else min(self.top_k, len(order))
-        selected = set(order[:n_sel])
+        winner_backbones = set(order[:n_sel])
 
         out_rows: list[dict[str, Any]] = []
         for b_idx, rows in enumerate(backbone_rows):
-            for row in rows:
-                row["reward"] = backbone_reward[b_idx]
-                row["advantage"] = advantages[b_idx]
-                row["selected"] = b_idx in selected
+            # The winning sequence of a backbone is its best-reward design.
+            best_s = max(range(len(rows)), key=lambda s: rows[s]["seq_reward"]) if rows else -1
+            for s_idx, row in enumerate(rows):
+                row["reward"] = backbone_reward[b_idx]  # backbone aggregate (diagnostic)
+                row["advantage"] = advantages[b_idx]  # group-relative z-score (diagnostic)
+                # `selected` marks exactly the design to fetch: the winning sequence of a
+                # winning backbone that ALSO passes every hard gate. A backbone whose best design
+                # still fails a gate contributes no selected row.
+                row["selected"] = (
+                    b_idx in winner_backbones
+                    and s_idx == best_s
+                    and passed_hard_gates(float(row["seq_reward"]))
+                )
                 out_rows.append(row)
 
         # Scoring for this round is done, so the non-winning backbone structure files are no
         # longer needed (v1 does not reseed around them). Delete them to bound disk at GRPO scale;
         # winners are kept for inspection/provenance. Mock backbones have no file on disk.
-        self._cleanup_backbones(backbones, keep=selected)
+        self._cleanup_backbones(backbones, keep=winner_backbones)
         return out_rows
 
     @staticmethod
@@ -331,10 +353,13 @@ class SelectionPipeline:
             # (its top-k backbones). v1 advances the seed deterministically.
             seed += 1
 
-        # Rank the whole table by advantage then reward, best first.
-        all_rows.sort(
-            key=lambda r: (r.get("advantage") or 0.0, r.get("reward") or 0.0), reverse=True
-        )
+        # Rank the whole table by ABSOLUTE per-design gated reward, best first, so the top rows are
+        # the best individual designs to fetch (advantage/backbone reward stay as diagnostics).
+        def _seq_reward(row: dict[str, Any]) -> float:
+            value = row.get("seq_reward")
+            return float(value) if isinstance(value, (int, float)) else float("-inf")
+
+        all_rows.sort(key=_seq_reward, reverse=True)
         self._write(all_rows)
         return self._as_table(all_rows)
 

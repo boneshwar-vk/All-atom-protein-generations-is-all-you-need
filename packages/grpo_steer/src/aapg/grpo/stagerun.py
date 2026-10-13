@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import shutil
 import subprocess
 import sys
 from dataclasses import replace
@@ -36,9 +37,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 import aapg.grpo.reward  # noqa: F401  (registers "ipsae_gated" into REWARDS)
+import aapg.score_head  # noqa: F401  (registers "structure_head"[_mock] for --backend parity)
 import aapg.toolkit  # noqa: F401  (registers the concrete + mock scorers into SCORERS)
 from aapg.core.scoring import REWARDS, SCORERS, Candidate, Score
 from aapg.grpo.candidate import build_candidate
+from aapg.grpo.reward import passed_hard_gates
 from aapg.grpo.scrmsd import self_consistency_rmsd
 
 if TYPE_CHECKING:
@@ -130,6 +133,32 @@ def _append_row(fh: Any, row: dict[str, Any]) -> None:
     """Append one row to an open JSON-Lines file handle and flush (crash-safe checkpointing)."""
     fh.write(json.dumps(row) + "\n")
     fh.flush()
+
+
+def _repair_torn_tail(path: Path) -> None:
+    """Drop a truncated final line (no trailing newline) left by a hard kill mid-append.
+
+    Each row is written as ``json + "\\n"`` and flushed, so a complete file ends in ``\\n``. A hard
+    kill (OS OOM, power loss) mid-write can leave a partial final line with no newline; a later
+    ``open("a")`` would then concatenate the re-emitted row onto those bytes, corrupting the
+    manifest. Truncating back to the last newline before appending makes resume clean -- the
+    dropped row is simply re-emitted by the resuming stage.
+    """
+    if not path.exists():
+        return
+    with path.open("rb+") as fh:
+        fh.seek(0, 2)  # end
+        size = fh.tell()
+        if size == 0:
+            return
+        fh.seek(size - 1)
+        if fh.read(1) == b"\n":
+            return  # last row is intact
+        fh.seek(0)
+        data = fh.read()
+        nl = data.rfind(b"\n")
+        fh.seek(0)
+        fh.truncate(nl + 1)  # keep through the last complete row (or 0 if none)
 
 
 # --------------------------------------------------------------------------------------------
@@ -327,9 +356,22 @@ def cmd_rfd3(args: argparse.Namespace) -> int:
         if ca_coords is None:
             raise RuntimeError(f"backbone {bb_id} has no CA coordinates to persist for scRMSD")
         np.save(bb_dir / f"{bb_id}.npy", np.asarray(ca_coords, dtype=float))
+
+        # Persist the backbone PDB INTO the run dir. The sampler writes it to a /tmp scratch dir
+        # that later stage processes (and other machines) can't rely on; MPNN and the fold target-
+        # sequence derivation both need the real file. Copy it in and record the stable path so
+        # `$RUN/backbones/` is self-contained and portable. Mock backbones have a `mock://` path
+        # and no file -- keep it as-is.
+        path = backbone.path
+        if not path.startswith("mock://"):
+            src = Path(path)
+            if src.is_file():
+                dest = bb_dir / f"{bb_id}{src.suffix or '.pdb'}"
+                shutil.copyfile(src, dest)
+                path = str(dest)
         rows[bb_id] = {
             "id": bb_id,
-            "path": backbone.path,
+            "path": path,
             "length": int(backbone.length),
             "binder_chains": list(binder_chains),
         }
@@ -352,6 +394,7 @@ def cmd_mpnn(args: argparse.Namespace) -> int:
     backbones = json.loads((run / "backbones.json").read_text())
     target, _default_binder_chains = _resolve_target(args)
     seq_path = run / "sequences.jsonl"
+    _repair_torn_tail(seq_path)  # heal a partial final line from a prior hard kill before resume
     # Dedup per-CANDIDATE, not per-backbone: a crash between a backbone's per-sequence appends
     # must not mark the whole backbone done and drop its remaining sequences (the N*K invariant).
     done_cands = _done_ids(seq_path, "cand")
@@ -477,6 +520,7 @@ def cmd_fold(args: argparse.Namespace) -> int:
     bb_by_id = {str(b["id"]): b for b in json.loads((run / "backbones.json").read_text())}
     sequences = _read_jsonl(run / "sequences.jsonl")
     struct_path = run / "structure.jsonl"
+    _repair_torn_tail(struct_path)  # heal a partial final line before resume
     done = _done_ids(struct_path, "cand")
 
     scorer = _build_structure_scorer(args, structures_dir)
@@ -515,15 +559,19 @@ def cmd_fold(args: argparse.Namespace) -> int:
             candidate = replace(
                 candidate, metadata={**candidate.metadata, "work_dir": str(structures_dir)}
             )
-            score = scorer.score(candidate)
-            values = dict(score.values)
-            cif = score.metadata.get("cif_path")
-            scrmsd = _scrmsd(designed_ca, score.metadata.get("predicted_ca_coords"))
-
-            row: dict[str, Any] = {"cand": cand, "id": bb_id, "seq": seq_row["seq"], "cif": cif}
-            for metric in _STRUCTURE_METRICS:
-                row[metric] = values.get(metric)
-            row["scrmsd"] = scrmsd
+            row: dict[str, Any] = {"cand": cand, "id": bb_id, "seq": seq_row["seq"], "cif": None}
+            try:
+                score = scorer.score(candidate)
+                values = dict(score.values)
+                row["cif"] = score.metadata.get("cif_path")
+                for metric in _STRUCTURE_METRICS:
+                    row[metric] = values.get(metric)
+                row["scrmsd"] = _scrmsd(designed_ca, score.metadata.get("predicted_ca_coords"))
+            except Exception as exc:  # noqa: BLE001 - one bad fold must not wedge the whole stage
+                # Record a flagged empty row so resume SKIPS this candidate (no infinite retry);
+                # with no metrics the gated reward floors it, same as the online path.
+                row["scorer_error"] = f"{type(exc).__name__}: {exc}"
+                print(f"[fold] FAILED {cand}: {row['scorer_error']}", file=sys.stderr)
             _append_row(fh, row)
             folded += 1
             print(f"[fold] scored {cand}")
@@ -541,6 +589,7 @@ def cmd_rosetta(args: argparse.Namespace) -> int:
     bb_by_id = {str(b["id"]): b for b in json.loads((run / "backbones.json").read_text())}
     structure_rows = _read_jsonl(run / "structure.jsonl")
     out_path = run / "rosetta.jsonl"
+    _repair_torn_tail(out_path)  # heal a partial final line before resume
     done = _done_ids(out_path, "cand")
 
     name = "rosetta_interface_mock" if args.mock else "rosetta_interface"
@@ -555,8 +604,16 @@ def cmd_rosetta(args: argparse.Namespace) -> int:
             bb = bb_by_id[str(row["id"])]
             binder_chains = tuple(bb["binder_chains"])
             cif = row.get("cif")
-            # Score the PREDICTED complex when a CIF exists; otherwise (mock) the mock scorer
+            out: dict[str, Any] = {"cand": cand}
+            # A real run needs the predicted complex CIF; a fold that failed (no cif, flagged
+            # scorer_error) has nothing to analyse -> record an empty row so resume skips it and
+            # the reward join degrades gracefully. In mock, there is no CIF and the mock scorer
             # ignores the structure, so the backbone path is a harmless placeholder.
+            if not args.mock and not cif:
+                out["scorer_error"] = row.get("scorer_error", "no predicted CIF from fold stage")
+                _append_row(fh, out)
+                scored += 1
+                continue
             structure_path = cif if cif else bb["path"]
             candidate = Candidate(
                 structure_path=structure_path,
@@ -565,10 +622,13 @@ def cmd_rosetta(args: argparse.Namespace) -> int:
                 binder_sequence=row.get("seq"),
                 name=cand,
             )
-            values = scorer.score(candidate).values
-            out: dict[str, Any] = {"cand": cand}
-            for metric in _ROSETTA_METRICS:
-                out[metric] = values.get(metric)
+            try:
+                values = scorer.score(candidate).values
+                for metric in _ROSETTA_METRICS:
+                    out[metric] = values.get(metric)
+            except Exception as exc:  # noqa: BLE001 - one bad interface must not wedge the stage
+                out["scorer_error"] = f"{type(exc).__name__}: {exc}"
+                print(f"[rosetta] FAILED {cand}: {out['scorer_error']}", file=sys.stderr)
             _append_row(fh, out)
             scored += 1
             print(f"[rosetta] scored {cand}")
@@ -633,8 +693,19 @@ def cmd_reward(args: argparse.Namespace) -> int:
             if isinstance(value, (int, float)):
                 merged[metric] = float(value)
         reward_value = reward([Score(values=merged)])
-        ranked.append({"cand": cand, "reward": reward_value, **merged})
+        # gate_pass flags designs that cleared every HARD gate -- filter the ranked table to these
+        # to fetch only trustworthy designs (a gate failure floors the reward to ~ -1000).
+        ranked.append(
+            {
+                "cand": cand,
+                "reward": reward_value,
+                "gate_pass": passed_hard_gates(reward_value),
+                **merged,
+            }
+        )
 
+    # Rank by ABSOLUTE gated reward, best first (per-candidate; the stage runner does not do the
+    # online backbone aggregation / group-relative advantage -- see docs/RUNNING.md).
     ranked.sort(key=lambda r: r["reward"], reverse=True)
 
     # Default to an EXTENSIONLESS path so the writer picks the format by what's installed

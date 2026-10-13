@@ -19,12 +19,32 @@ from typing import Any
 
 from aapg.core.scoring import REWARDS, Reward, Score, combine_scores
 
-__all__ = ["IpSAEGatedReward", "aggregate_sequences", "bound_satisfied", "bound_violation"]
+__all__ = [
+    "IpSAEGatedReward",
+    "aggregate_sequences",
+    "bound_satisfied",
+    "bound_violation",
+    "passed_hard_gates",
+    "HARD_FAIL_FLOOR",
+]
 
 # Reward returned when any hard gate fails. A tiny +primary term is added on top so that even
 # among rejected candidates the ordering by primary metric is still defined (useful for GRPO
 # advantages on hard targets where every candidate fails a gate).
 _HARD_FAIL_FLOOR = -1e3
+# Public alias for callers that need to distinguish gate-passing from gate-failing rewards.
+HARD_FAIL_FLOOR = _HARD_FAIL_FLOOR
+
+
+def passed_hard_gates(reward_value: float) -> bool:
+    """Whether ``reward_value`` came from a candidate that passed every HARD gate.
+
+    A hard-gate failure returns ``_HARD_FAIL_FLOOR (+ a tiny primary term)`` ≈ -1000, whereas a
+    passing candidate's reward is its primary metric minus bounded soft penalties (far above
+    -500). The midpoint cleanly separates the two, so selection can exclude gate failures from the
+    designs it marks as winners.
+    """
+    return reward_value > _HARD_FAIL_FLOOR / 2.0
 
 # Floor on a *derived* soft-penalty denominator. When no explicit ``scale`` is given, the scale
 # defaults to the bound's characteristic magnitude; a bound whose magnitude is 0 (e.g.
