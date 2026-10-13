@@ -353,23 +353,44 @@ class SelectionPipeline:
             return ordered
         return pl.DataFrame(ordered)
 
+    @staticmethod
+    def _write_jsonl(ordered: list[dict[str, Any]], out: Path) -> str:
+        """Write ``ordered`` rows as JSON Lines to ``out``."""
+        with out.open("w") as fh:
+            for row in ordered:
+                fh.write(json.dumps(row) + "\n")
+        return str(out)
+
     def _write(self, rows: list[dict[str, Any]]) -> str | None:
-        """Write the ranked table to ``cfg['output_path']`` (Parquet via polars, else JSONL)."""
+        """Write the ranked table to ``cfg['output_path']``.
+
+        The FORMAT follows the path's extension, so the file contents always match its name:
+        ``.jsonl``/``.json`` -> JSON Lines (stdlib, regardless of whether polars is installed);
+        ``.parquet`` -> Parquet (requires polars); no/other extension -> Parquet when polars is
+        available (appending ``.parquet``), else JSONL (appending ``.jsonl``).
+        """
         output_path = self.cfg.get("output_path")
         if not output_path:
             return None
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         ordered = self._ordered(rows)
+        suffix = path.suffix.lower()
+
+        if suffix in (".jsonl", ".json"):
+            return self._write_jsonl(ordered, path)
+
         try:
             import polars as pl
-
-            out = path if path.suffix else path.with_suffix(".parquet")
-            pl.DataFrame(ordered).write_parquet(out)
-            return str(out)
         except ImportError:
-            out = path if path.suffix else path.with_suffix(".jsonl")
-            with out.open("w") as fh:
-                for row in ordered:
-                    fh.write(json.dumps(row) + "\n")
-            return str(out)
+            if suffix == ".parquet":
+                raise RuntimeError(
+                    f"writing {path} as Parquet needs polars; install the grpo_steer 'full' extra "
+                    "or use a .jsonl output_path."
+                ) from None
+            # No/unknown extension and no polars: fall back to JSONL.
+            return self._write_jsonl(ordered, path if suffix else path.with_suffix(".jsonl"))
+
+        out = path if suffix else path.with_suffix(".parquet")
+        pl.DataFrame(ordered).write_parquet(out)
+        return str(out)

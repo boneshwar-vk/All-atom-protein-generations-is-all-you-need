@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 import aapg.toolkit  # noqa: F401  (registers the mock scorers)
 from aapg.core.scoring import SCORERS
 from aapg.grpo.reward import IpSAEGatedReward
@@ -101,3 +105,30 @@ def test_top_k_marks_only_winners_selected():
     selected_backbones = {r["name"].rsplit("_s", 1)[0] for r in rows if r["selected"]}
     assert len(selected_backbones) == 2
     assert sum(1 for r in rows if r["selected"]) == 4
+
+
+def _write_pipeline(output_path: str) -> SelectionPipeline:
+    scorers = [SCORERS.create("protenix_v2_mock"), SCORERS.create("rosetta_interface_mock")]
+    cfg = {"n_backbones": 2, "seqs_per_backbone": 2, "group_size": 64, "output_path": output_path}
+    return SelectionPipeline(
+        MockRFD3Sampler(), MockMPNNDesigner(), scorers, IpSAEGatedReward(primary="ipsae"), cfg
+    )
+
+
+def test_jsonl_output_path_is_real_jsonl(tmp_path):
+    """A .jsonl output_path must contain JSON Lines regardless of whether polars is installed."""
+    out = tmp_path / "ranked.jsonl"
+    _write_pipeline(str(out)).run(Target(binder_length=12))
+    assert out.exists()
+    lines = out.read_text().splitlines()
+    assert lines, "no rows written"
+    parsed = [json.loads(line) for line in lines]  # must not raise (would raise on Parquet bytes)
+    assert len(parsed) == 4  # 2 backbones x 2 seqs
+    assert all(m in parsed[0] for m in METRIC_COLUMNS)
+
+
+def test_parquet_output_path_is_parquet_when_polars_present(tmp_path):
+    pytest.importorskip("polars")
+    out = tmp_path / "ranked.parquet"
+    _write_pipeline(str(out)).run(Target(binder_length=12))
+    assert out.read_bytes()[:4] == b"PAR1"  # Parquet magic bytes
