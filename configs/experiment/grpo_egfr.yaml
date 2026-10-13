@@ -1,0 +1,62 @@
+# @package _global_
+# Named preset: GRPO best-of-N / hill-climb SELECTION of a MINI-BINDER against the EGFR receptor
+# (the human EGF receptor extracellular region). Samples RFD3 backbones + ProteinMPNN sequences,
+# scores them through the Protenix/Boltz-2 + Rosetta cascade, and ranks by the ipSAE-gated reward
+# (module 1 v1). No sampler weights are updated. Composes the same module config groups as
+# grpo_binder; see configs/experiment/grpo_binder.yaml for the base pattern.
+#
+# `experiment` is NOT in the root config's defaults list, so select this preset with a leading
+# '+': `aapg-grpo +experiment=grpo_egfr ...` (plain `experiment=grpo_egfr` is a Hydra error).
+# Keys not already present in a group also need '+', e.g. `+steering.output_path=ranked.parquet`.
+#
+# =====================================================================================
+#  !!! PLACEHOLDER TARGET -- YOU MUST EDIT `target` BELOW BEFORE ANY REAL (non-mock) RUN !!!
+# =====================================================================================
+# The target block below is a CLEARLY-LABELLED PLACEHOLDER. `structure_path` is `???` (a Hydra
+# mandatory-missing value) on purpose, so a non-mock run fails loudly until you point it at a
+# real EGFR structure. See docs/EGFR_smoke_test.md for how to obtain the PDB and pick residues.
+
+defaults:
+  - override /model: rfd3
+  - override /steering: grpo
+  - override /reward: ipsae_gated
+  - override /scorer: structure_auto
+  - _self_
+
+run_name: grpo_egfr_demo
+seed: 0
+
+# Cost-ordered scoring cascade (cheap -> expensive); gated with the reward's hard gates. Uses the
+# open default structure backend (Boltz-2, or Protenix v2 if licensed weights are present);
+# scorer_cfg is inherited from configs/steering/grpo.yaml. To force Protenix v2, set
+# `cascade: [protenix_v2, rosetta_interface]` and add scorer_cfg.protenix_v2.weights_dir.
+steering:
+  mode: selection
+  cascade: [structure_auto, rosetta_interface]
+
+  # ---------------------------------------------------------------------------------------
+  # EGFR TARGET -- PLACEHOLDER. Replace EVERY ??? / <...> below with values from YOUR structure.
+  # ---------------------------------------------------------------------------------------
+  target:
+    # REQUIRED: path to the EGFR target structure (PDB/mmCIF). Left as ??? so a real run errors
+    # until set. Point this at an EGFR extracellular-domain structure, e.g. the EGF-bound
+    # ectodomain 1IVO or the drug/ligand complex 3NJP (download + renumber first; see docs).
+    # Override on the CLI with:  +steering.target.structure_path=/abs/path/egfr.pdb
+    structure_path: ???            # e.g. /abs/path/to/egfr_domainIII.pdb  (chain = EGFR receptor)
+
+    # Chain(s) of the EGFR receptor in your structure file. 1IVO: receptor is chain A (EGF is C).
+    # ADJUST to match your file's chain IDs.
+    chains: [A]
+
+    # Chain ID to assign to the de-novo binder being designed (must not collide with target).
+    binder_chains: [B]
+
+    # Epitope HOTSPOTS: EGFR domain-III residues the binder should engage (the cetuximab /
+    # EGF-competitive face of domain III, ~res 310-480 in mature EGFR numbering). The values
+    # below are an ILLUSTRATIVE domain-III patch -- REPLACE with the real interface residues
+    # from YOUR renumbered structure (chain-prefixed, e.g. A465). Verify every residue exists
+    # and is surface-exposed in the file you provide.
+    hotspots: [A465, A467, A468, A440, A441]   # <-- PLACEHOLDER domain-III patch; replace
+
+    # Mini-binder length in residues. ~80 is a reasonable EGFR mini-binder size.
+    binder_length: 80

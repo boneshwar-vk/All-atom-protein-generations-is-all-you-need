@@ -32,3 +32,21 @@ def test_empty_returns_empty():
 
 def test_zero_variance_returns_zeros():
     assert group_relative_advantage([3.0, 3.0, 3.0]) == [0.0, 0.0, 0.0]
+
+
+def test_inf_reward_does_not_poison_group():
+    adv = group_relative_advantage([1.0, 2.0, float("inf")])
+    assert adv == [0.0, 0.0, 0.0]
+    assert np.all(np.isfinite(adv))
+
+
+def test_negative_inf_reward_does_not_poison_group():
+    adv = group_relative_advantage([float("-inf"), 2.0, 3.0])
+    assert adv == [0.0, 0.0, 0.0]
+    assert np.all(np.isfinite(adv))
+
+
+def test_nan_reward_does_not_poison_group():
+    adv = group_relative_advantage([1.0, float("nan"), 3.0, 4.0])
+    assert adv == [0.0, 0.0, 0.0, 0.0]
+    assert not np.any(np.isnan(adv))
