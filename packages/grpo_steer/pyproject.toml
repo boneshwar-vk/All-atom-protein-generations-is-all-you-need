@@ -21,6 +21,7 @@ full = ["hydra-core", "polars"]
 
 [project.scripts]
 aapg-grpo = "aapg.grpo.cli:main"
+aapg-grpo-stage = "aapg.grpo.stagerun:main"
 
 [build-system]
 requires = ["hatchling"]
