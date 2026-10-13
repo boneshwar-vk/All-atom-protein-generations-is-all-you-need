@@ -1,0 +1,8 @@
+# ProteinMPNN sequence designer (module 1) -- the DEFAULT backend.
+# Vendored dauparas/ProteinMPNN; drives protein_mpnn_run.py as a subprocess. See
+# packages/proteinmpnn/src/proteinmpnn/adapter.py. Switch backend with `designer=<name>`.
+name: proteinmpnn
+# Weight set: `vanilla` (general) or `soluble` (soluble-protein bias). Both are vendored.
+weights_set: vanilla
+temperature: 0.1
+# checkpoint: v_48_020   # model name / noise level (optional; default v_48_020)

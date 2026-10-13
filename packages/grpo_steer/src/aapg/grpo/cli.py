@@ -193,19 +193,29 @@ def _run_hydra() -> int:  # pragma: no cover - exercised only when hydra is inst
             sampler_cfg.setdefault("checkpoint", model_group["checkpoint"])
         trainer_cfg["sampler"] = sampler_cfg
 
-        # Thread the dedicated `scorer` group so it is not dead config: its `cascade` /
-        # `scorer_cfg` (configs/scorer/*.yaml) take precedence over the copies in `steering`,
-        # letting `scorer=boltz2` on the CLI actually pick the backend.
+        # Thread the dedicated `scorer` group (configs/scorer/*.yaml) so it is not dead config.
+        # What threads from the selected file:
+        #   - `cascade` (when present) REPLACES the cascade copied from `steering`. The structure
+        #     backends carry one (default.yaml -> structure_auto; boltz2.yaml -> [boltz2, ...];
+        #     protenix.yaml -> [protenix_v2, ...]), so `scorer=boltz2` actually swaps the backend.
+        #   - the file's remaining keys are that scorer's construction kwargs; they seed
+        #     `scorer_cfg[<name>]` (merged over any copy from `steering`) so the backend's settings
+        #     (weights_dir, recycling_steps, ...) reach the scorer rather than being dropped.
+        # A component-only file (ipsae.yaml, rosetta_interface.yaml) has no `cascade`, so it leaves
+        # the steering cascade untouched and only seeds `scorer_cfg[<name>]` (harmless if unused).
         scorer_group = container.get("scorer") or {}
-        if isinstance(scorer_group, dict):
+        if isinstance(scorer_group, dict) and scorer_group:
             if scorer_group.get("cascade"):
                 trainer_cfg["cascade"] = scorer_group["cascade"]
-            if scorer_group.get("scorer_cfg"):
+            name = scorer_group.get("name")
+            ctor = {k: v for k, v in scorer_group.items() if k not in {"name", "cascade"}}
+            if name and ctor:
                 merged = dict(trainer_cfg.get("scorer_cfg") or {})
-                merged.update(scorer_group["scorer_cfg"])
+                merged[str(name)] = {**merged.get(str(name), {}), **ctor}
                 trainer_cfg["scorer_cfg"] = merged
 
-        # Thread the `designer` group (ProteinMPNN kwargs) so it reaches the designer adapter.
+        # Thread the `designer` group (its `name` + backend kwargs) so `designer=protonmpnn` on
+        # the CLI switches the backend and the kwargs reach the designer adapter.
         designer_group = container.get("designer") or {}
         if isinstance(designer_group, dict) and designer_group:
             designer_cfg = dict(trainer_cfg.get("designer") or {})

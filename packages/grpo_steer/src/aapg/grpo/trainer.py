@@ -118,9 +118,17 @@ class GRPOTrainer:
         return get_sampler(mock=mock, **dict(self.cfg.get("sampler", {})))
 
     def _build_designer(self, mock: bool) -> Any:
-        from proteinmpnn.adapter import get_designer
+        """Build the sequence designer from ``cfg['designer']`` (name-switchable backend).
 
-        return get_designer(mock=mock, **dict(self.cfg.get("designer", {})))
+        ``designer.name`` picks the backend (default ``proteinmpnn``; ``protonmpnn`` is the
+        placeholder alternate); the remaining kwargs are forwarded to the backend constructor. A
+        config with no ``designer.name`` still uses ProteinMPNN (backward compatible).
+        """
+        from aapg.grpo.designers import get_designer
+
+        designer_cfg = dict(self.cfg.get("designer", {}))
+        name = str(designer_cfg.pop("name", "proteinmpnn"))
+        return get_designer(name, mock=mock, **designer_cfg)
 
     # -- backward-compatible surface -----------------------------------------------------
     def train(self) -> Any:

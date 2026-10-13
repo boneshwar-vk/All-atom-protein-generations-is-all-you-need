@@ -5,6 +5,7 @@ defaults:
   - paths: default
   - model: rfd3
   - sampler: default
+  - designer: proteinmpnn
   - ellipsoid: none
   - steering: grpo
   - reward: ipsae_gated

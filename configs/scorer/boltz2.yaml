@@ -2,6 +2,10 @@
 # Boltz-2 is MIT-licensed with open, commercially-usable weights that auto-download on first run
 # (or set weights_dir to a local copy under data/weights/boltz2 for offline/container runs).
 name: boltz2
+# Full cost-ordered cascade for this backend, so `scorer=boltz2` on the CLI replaces the default
+# `structure_auto` cascade and actually folds with Boltz-2 (the remaining keys below are this
+# scorer's construction kwargs, threaded into scorer_cfg[boltz2]).
+cascade: [boltz2, rosetta_interface]
 model: boltz2
 weights_dir: ${paths.weights_dir}/boltz2   # optional local cache; null/unset => Boltz auto-cache
 recycling_steps: 3

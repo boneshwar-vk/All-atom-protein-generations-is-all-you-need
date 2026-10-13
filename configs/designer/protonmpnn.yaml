@@ -1,0 +1,11 @@
+# ProtonMPNN sequence designer -- PLACEHOLDER, NOT YET WIRED.
+# Alternate to the default ProteinMPNN backend, selected with `designer=protonmpnn`. The real
+# model is not vendored yet: a non-mock run raises RuntimeError pointing here. To wire it, implement
+# the real path in aapg.grpo.designers.ProtonMPNNDesigner.design (mirror the ProteinMPNN adapter's
+# subprocess driver) and fill in the weights/checkpoint settings below. Until then,
+# `steering.mock=true designer=protonmpnn` runs the deterministic mock (distinct output from the
+# ProteinMPNN mock, so the switch is observable).
+name: protonmpnn
+weights_set: vanilla
+temperature: 0.1
+# checkpoint: ???   # path/name of the real ProtonMPNN weights (required for the real backend)
