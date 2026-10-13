@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from aapg.core.scoring import Score
-from aapg.grpo.reward import IpSAEGatedReward
+from aapg.grpo.reward import IpSAEGatedReward, bound_violation
 
 
 def _passing_values() -> dict[str, float]:
@@ -128,3 +128,44 @@ def test_missing_primary_rejects():
     del values["ipsae"]
     r = _reward()([Score(values=values)])
     assert r <= -1e3
+
+
+def test_explicit_sub_one_scale_is_honored():
+    # Regression: an explicit scale < 1.0 must NOT be clobbered to the 1.0 floor. A bound of
+    # {min: 0.6, scale: 0.3} with value 0.0 violates by 0.6 and divides by the configured 0.3,
+    # so the per-unit penalty is 0.6 / 0.3 == 2.0 (NOT 0.6 / 1.0 == 0.6).
+    violation, scale = bound_violation(0.0, {"min": 0.6, "scale": 0.3})
+    assert abs(violation - 0.6) < 1e-9
+    assert abs(scale - 0.3) < 1e-9
+    assert abs(violation / scale - 2.0) < 1e-9
+
+    # End-to-end: the soft penalty uses the configured 0.3 scale.
+    reward = IpSAEGatedReward(
+        primary="ipsae",
+        penalty_weight=1.0,
+        soft={"iptm": {"min": 0.6, "scale": 0.3}},
+    )
+    r = reward([Score(values={"ipsae": 0.8, "iptm": 0.0})])
+    assert abs(r - (0.8 - 2.0)) < 1e-9
+
+
+def test_explicit_zero_scale_falls_back_to_floor():
+    # A literal scale of 0 would divide by zero; guard it with the floor instead.
+    _violation, scale = bound_violation(0.0, {"min": 0.6, "scale": 0.0})
+    assert abs(scale - 1.0) < 1e-9
+
+
+def test_zero_default_scale_still_floors():
+    # No explicit scale on a {max: 0} bound: the derived default magnitude is 0 and must still be
+    # floored to 1.0, so a value of 10 costs a bounded 10, not ~2e8.
+    violation, scale = bound_violation(10.0, {"max": 0})
+    assert abs(violation - 10.0) < 1e-9
+    assert abs(scale - 1.0) < 1e-9
+
+    reward = IpSAEGatedReward(
+        primary="ipsae",
+        penalty_weight=1.0,
+        soft={"interface_dg": {"max": 0}},
+    )
+    r = reward([Score(values={"ipsae": 0.8, "interface_dg": 10.0})])
+    assert abs(r - (0.8 - 10.0)) < 1e-9

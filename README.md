@@ -63,6 +63,27 @@ make test
 uv run python -m aapg.pipelines.end2end --help
 ```
 
+For a CPU/mock health check of a clone (no GPU or weights needed), run
+[`scripts/smoke_test.sh`](scripts/smoke_test.sh).
+
+### Real (non-mock) run
+
+The steps above exercise the mock adapters only. A real structure-folding run additionally needs:
+
+```bash
+# Fetch the open model weights into data/weights/ (Boltz-2, RFD3; verifies vendored ProteinMPNN)
+make weights-download        # == bash scripts/weights/download_all.sh
+```
+
+- **Weights** land under `data/weights/` (git-ignored) — see
+  [`data/weights/README.md`](data/weights/README.md) and the per-model scripts in
+  [`scripts/weights/`](scripts/weights/) (each takes `--dry-run`).
+- **PyRosetta** (interface scorer) is separately licensed — a non-PyPI wheel from the
+  RosettaCommons channel, installed out-of-band (it is *not* pulled by `--extra tools` on
+  python ≥ 3.11).
+- **Hardware**: a real run needs a CUDA GPU and the heavy model stacks (torch, boltz, foundry/rfd3),
+  installed by the weight scripts or the per-tool containers under `containers/`.
+
 ## Design principles
 
 - **uv workspace of independently installable packages** — share one lockfile and one config tree,

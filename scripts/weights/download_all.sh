@@ -11,7 +11,8 @@
 # Optional extras (off by default): --with-protenix-v1 (alternate open backend), --with-esm2.
 #
 # Everything lands under ${AAPG_ROOT:-<repo>}/data/weights/<model>/ (git-ignored). PyRosetta (the
-# interface scorer) is a separately-licensed PACKAGE, not weights -- install it in the tools extra.
+# interface scorer) is a separately-licensed PACKAGE, not weights -- a non-PyPI wheel from the
+# RosettaCommons channel, installed out-of-band (NOT pulled by --extra tools on python>=3.11).
 #
 # Usage:
 #   scripts/weights/download_all.sh [--dry-run] [--with-protenix-v1] [--with-esm2]
@@ -50,8 +51,9 @@ log "=== Protenix v2 (proprietary; instructions only) ==="; bash "${HERE}/proten
 cat <<EOF
 
 [weights] Done. For a real GRPO run you also need (not weights, installed separately):
-  - PyRosetta (interface scorer)  : licensed; install the aapg-toolkit 'tools' extra on a box
-                                     that has a PyRosetta wheel.
+  - PyRosetta (interface scorer)  : licensed; a non-PyPI wheel from the RosettaCommons channel.
+                                     On python>=3.11 it is NOT pulled by 'uv sync --extra tools'
+                                     (its marker is never satisfied); install it out-of-band.
   - the heavy model stacks (torch, boltz, foundry/rfd3) : installed by their scripts above or the
                                      per-model containers under containers/.
 The mock pipeline needs none of these: 'uv run aapg-grpo steering.mock=true ...' runs on CPU.

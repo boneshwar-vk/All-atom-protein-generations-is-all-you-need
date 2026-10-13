@@ -26,9 +26,11 @@ __all__ = ["IpSAEGatedReward", "aggregate_sequences", "bound_satisfied", "bound_
 # advantages on hard targets where every candidate fails a gate).
 _HARD_FAIL_FLOOR = -1e3
 
-# Floor on a soft-penalty denominator. A bound whose characteristic magnitude is 0 (e.g.
+# Floor on a *derived* soft-penalty denominator. When no explicit ``scale`` is given, the scale
+# defaults to the bound's characteristic magnitude; a bound whose magnitude is 0 (e.g.
 # ``interface_dg: {max: 0}``) would otherwise divide by ~0 and produce an enormous penalty that
-# inverts the ranking; the floor caps the per-unit penalty at "violation itself". Give such a
+# inverts the ranking, so the derived default is floored here (the per-unit penalty then caps at
+# "violation itself"). An explicit ``scale`` is honored verbatim and is NOT floored — give such a
 # metric an explicit ``scale`` in its bound (e.g. ``{max: 0, scale: 15}``) to set the sensitivity.
 _SCALE_FLOOR = 1.0
 
@@ -43,9 +45,11 @@ def bound_violation(value: float, bound: dict[str, Any]) -> tuple[float, float]:
 
     ``bound`` is one of ``{"min": x}``, ``{"max": x}`` or ``{"range": [lo, hi]}`` and may carry an
     explicit ``{"scale": s}``. The violation is the non-negative amount by which ``value`` is
-    outside the bound; ``scale`` normalizes penalties across metrics and is floored at
-    :data:`_SCALE_FLOOR` so a zero-valued bound cannot blow up the penalty. A satisfied bound has
-    violation ``0``.
+    outside the bound; ``scale`` normalizes penalties across metrics. An explicit ``scale`` is
+    honored verbatim (only a literal ``0`` is replaced by :data:`_SCALE_FLOOR` to avoid dividing by
+    zero); when no ``scale`` is given, the scale defaults to the bound's characteristic magnitude
+    and that derived default is floored at :data:`_SCALE_FLOOR` so a zero-valued bound cannot blow
+    up the penalty. A satisfied bound has violation ``0``.
     """
     violation = 0.0
     default_scale = 1.0
@@ -64,7 +68,12 @@ def bound_violation(value: float, bound: dict[str, Any]) -> tuple[float, float]:
         hi = float(bound["max"])
         violation = max(0.0, value - hi)
         default_scale = abs(hi)
-    scale = max(float(bound.get("scale", default_scale)), _SCALE_FLOOR)
+    if "scale" in bound:
+        # Honor an explicit scale verbatim; only guard against a literal 0 denominator.
+        scale = float(bound["scale"]) or _SCALE_FLOOR
+    else:
+        # Floor only the DERIVED default so a zero-magnitude bound cannot blow up the penalty.
+        scale = max(default_scale, _SCALE_FLOOR)
     return violation, scale
 
 

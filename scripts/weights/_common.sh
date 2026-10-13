@@ -52,7 +52,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 # Destination dir for a model (created unless dry-run); echoes the path.
 dest_for() {
-  local model="$1" target="${WEIGHTS_DIR}/$1"
+  local target="${WEIGHTS_DIR}/$1"
   if [[ "${DRY_RUN}" -eq 0 ]]; then mkdir -p "${target}"; fi
   printf '%s' "${target}"
 }

@@ -31,7 +31,8 @@ fmt: ## Auto-format with ruff
 type: ## Type-check first-party source with mypy
 	uv run mypy packages/core/src packages/toolkit/src packages/rfd3_ellipsoid/src \
 		packages/grpo_steer/src packages/mpnn_iter/src packages/validation/src \
-		packages/pipelines/src
+		packages/pipelines/src packages/rfdiffusion3/src packages/proteinmpnn/src \
+		packages/score_head/src
 
 check: lint type test ## Run lint + type + test (what CI runs)
 

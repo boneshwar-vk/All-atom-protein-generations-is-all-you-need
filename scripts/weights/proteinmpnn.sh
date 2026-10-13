@@ -41,9 +41,10 @@ fi
 if [[ "${DRY_RUN}" -eq 0 ]]; then
   mkdir -p "${WEIGHTS_DIR}"
   link="${WEIGHTS_DIR}/proteinmpnn"
-  if [[ ! -e "${link}" ]]; then
-    ln -s "${VENDOR}" "${link}" && log "symlinked ${link} -> ${VENDOR}"
-  fi
+  # -f replaces any stale/broken existing symlink, -n avoids dereferencing an existing dir symlink
+  # (which would otherwise create the link *inside* the target). Idempotent and quiet on re-run.
+  ln -sfn "${VENDOR}" "${link}"
+  log "symlinked ${link} -> ${VENDOR}"
 fi
 
 log "ProteinMPNN weights verified (8 checkpoints present)."
