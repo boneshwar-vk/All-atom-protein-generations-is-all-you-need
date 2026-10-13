@@ -23,7 +23,8 @@
 #   RECYCLING_STEPS=1                  # fold recycling steps (keep low on Apple Silicon)
 #   DIFFUSION_SAMPLES=1                # fold diffusion samples (1 => one complex at a time)
 #   MIN_FREE_GB=4                      # fold bails (exit 75) below this free-memory floor
-#   OUTPUT=$RUN/ranked.parquet         # ranked table (extension picks the format)
+#   OUTPUT=$RUN/ranked                 # ranked table; extension picks format (no ext => parquet
+#                                      #   if polars installed, else jsonl -- safe on minimal CPU)
 #   Target spec (pick ONE source):
 #     TARGET_JSON=path/to/target.json  # {structure_path,chains,binder_chains,hotspots,binder_length}
 #   or individual flags:
@@ -34,7 +35,9 @@
 set -euo pipefail
 
 usage() {
-  grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'
+  # Print only the leading comment block (after the shebang), stopping at the first non-comment
+  # line -- so in-body comments further down are never echoed into --help.
+  awk 'NR==1 && /^#!/ {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$0"
 }
 case "${1:-}" in
   -h | --help)
@@ -64,7 +67,7 @@ BACKEND="${BACKEND:-boltz2}"
 RECYCLING_STEPS="${RECYCLING_STEPS:-1}"
 DIFFUSION_SAMPLES="${DIFFUSION_SAMPLES:-1}"
 MIN_FREE_GB="${MIN_FREE_GB:-4}"
-OUTPUT="${OUTPUT:-${RUN}/ranked.parquet}"
+OUTPUT="${OUTPUT:-${RUN}/ranked}"
 
 mkdir -p "${RUN}"
 

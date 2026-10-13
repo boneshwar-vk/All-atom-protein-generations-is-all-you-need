@@ -76,10 +76,18 @@ shards** with different seeds and merge:
 ```bash
 for g in 0 1 2 3; do
   CUDA_VISIBLE_DEVICES=$g uv run --extra full aapg-grpo +experiment=grpo_egfr \
-    steering.mock=false steering.seed=$g steering.n_backbones=512 steering.seqs_per_backbone=4 \
+    steering.mock=false +steering.seed=$g steering.n_backbones=512 steering.seqs_per_backbone=4 \
     +steering.output_path=experiments/outputs/egfr_a100/shard_$g.parquet &
 done; wait
-# merge: polars.concat([read_parquet(f) for f in shard_*.parquet]).sort('reward', descending=True)
+```
+`+steering.seed=$g` (leading `+`) — `seed` is not a preset key in the `steering` group, so a bare
+`steering.seed=...` is a Hydra compose error. Then merge the shards:
+```python
+import glob, polars as pl
+
+pl.concat(
+    [pl.read_parquet(f) for f in glob.glob("experiments/outputs/egfr_a100/shard_*.parquet")]
+).sort("reward", descending=True).write_parquet("experiments/outputs/egfr_a100/ranked.parquet")
 ```
 
 ### 1.7 Throughput (A100, rough)
@@ -102,13 +110,17 @@ next.
 uv sync --all-packages --extra full
 uv pip install torch                 # arm64 wheel ships MPS support
 uv pip install boltz
+uv pip install "rc-foundry[all]"     # RFD3 (Stage 1) — see the Apple-Silicon caveat below
 uv pip install pyrosetta-installer && \
   uv run python -c "import pyrosetta_installer; pyrosetta_installer.install_pyrosetta()"  # Apple Silicon build
+make weights-download                # Boltz-2 + RFD3 into data/weights/ (ProteinMPNN is vendored)
 export PYTORCH_ENABLE_MPS_FALLBACK=1 # let ops MPS doesn't implement fall back to CPU (slower, but runs)
 ```
 **RFD3 on Apple Silicon is the big unknown** — foundry/RFD3 is CUDA-oriented and may not run on
-MPS. Test it on **one** backbone first (below). If it won't run, generate backbones on a
-CUDA box (Part 1, RFD3 stage only) and copy them over; ProteinMPNN/Boltz/Rosetta are fine on Mac.
+MPS. Test it on **one** backbone first (Stage 1 with `--n 1` below). If it won't run, generate
+backbones on a CUDA box (Part 1 install + the `rfd3` stage only) and copy `data/weights/egfr_mac/`'s
+`backbones.json` + `backbones/` over; ProteinMPNN/Boltz/Rosetta are fine on Mac. (Boltz-2 weights
+also auto-download on first fold, so `make weights-download` is optional for the fold stage.)
 
 ### 2.2 Memory-safety rules (keep you under 24 GB)
 - **One stage = one process.** Never run two stages at once.
@@ -145,8 +157,10 @@ T=(--run "$RUN" --target-json "$RUN/target.json")
 unless `--force`).
 ```bash
 uv run aapg-grpo-stage rfd3 "${T[@]}" --n 60 --seed 0 \
-  --checkpoint data/weights/rfd3 --rfd3-command rfd3   # tune --n to your time budget
+  --checkpoint data/weights/rfd3/base.ckpt --rfd3-command rfd3   # tune --n to your time budget
 ```
+(The exact RFD3 checkpoint filename under `data/weights/rfd3/` is foundry/version-dependent — see
+`configs/model/rfd3.yaml` and `foundry list-installed`; point `--checkpoint` at the actual file.)
 
 **Stage 2 — ProteinMPNN (sequences for all backbones):** designs `--seqs-per` sequences on each
 backbone not yet in `$RUN/sequences.jsonl`.

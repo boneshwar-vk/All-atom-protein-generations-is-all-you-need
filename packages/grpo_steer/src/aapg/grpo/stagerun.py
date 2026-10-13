@@ -105,11 +105,19 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     """Read a JSON-Lines manifest into a list of dicts (empty if the file is absent)."""
     if not path.exists():
         return []
+    lines = [line.strip() for line in path.read_text().splitlines()]
+    lines = [line for line in lines if line]
     rows: list[dict[str, Any]] = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line:
+    for i, line in enumerate(lines):
+        try:
             rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            # A hard kill (e.g. OS OOM) mid-append can leave a truncated FINAL line. Tolerate
+            # only that case -- the resuming stage re-emits the row; a bad non-final line is real
+            # corruption and must surface.
+            if i == len(lines) - 1:
+                break
+            raise
     return rows
 
 
@@ -304,12 +312,15 @@ def cmd_rfd3(args: argparse.Namespace) -> int:
         sampler_cfg["command"] = args.rfd3_command.split()
     sampler = get_sampler(mock=args.mock, **sampler_cfg)
 
-    backbones: list[Backbone] = sampler.sample_backbones(target, n=args.n, seed=args.seed)
+    # Generate ONLY the missing remainder (N - already-present), continuing the id numbering and
+    # offsetting the seed so the new backbones differ from the existing ones. This avoids re-running
+    # the whole (expensive, real-GPU) sampler just to discard already-saved backbones on resume.
+    start = len(existing)
+    to_make = args.n - start
+    backbones: list[Backbone] = sampler.sample_backbones(target, n=to_make, seed=args.seed + start)
     rows: dict[str, dict[str, Any]] = dict(existing)
-    for i, backbone in enumerate(backbones):
-        bb_id = f"bb{i:04d}"
-        if bb_id in existing and (bb_dir / f"{bb_id}.npy").exists():
-            continue  # already sampled and saved; resume without re-writing
+    for j, backbone in enumerate(backbones):
+        bb_id = f"bb{start + j:04d}"
         recorded = backbone.metadata.get("binder_chains")
         binder_chains = tuple(recorded) if recorded else default_binder_chains
         ca_coords = backbone.metadata.get("ca_coords")
@@ -341,7 +352,9 @@ def cmd_mpnn(args: argparse.Namespace) -> int:
     backbones = json.loads((run / "backbones.json").read_text())
     target, _default_binder_chains = _resolve_target(args)
     seq_path = run / "sequences.jsonl"
-    done = _done_ids(seq_path, "id")
+    # Dedup per-CANDIDATE, not per-backbone: a crash between a backbone's per-sequence appends
+    # must not mark the whole backbone done and drop its remaining sequences (the N*K invariant).
+    done_cands = _done_ids(seq_path, "cand")
 
     designer_cfg: dict[str, Any] = {}
     if args.weights_set:
@@ -354,8 +367,9 @@ def cmd_mpnn(args: argparse.Namespace) -> int:
     with seq_path.open("a") as fh:
         for bb in backbones:
             bb_id = str(bb["id"])
-            if bb_id in done:
-                continue  # this backbone's sequences are already recorded; resume
+            # Skip the backbone only if EVERY one of its candidates is already recorded.
+            if all(f"{bb_id}_seq{i:02d}" in done_cands for i in range(args.seqs_per)):
+                continue
             binder_chains = tuple(bb["binder_chains"])
             backbone = Backbone(
                 path=bb["path"],
@@ -370,12 +384,15 @@ def cmd_mpnn(args: argparse.Namespace) -> int:
                 seed=args.seed,
             )
             for seq_idx, seq in enumerate(sequences):
+                cand = f"{bb_id}_seq{seq_idx:02d}"
+                if cand in done_cands:
+                    continue  # already written on a previous run; keep the N*K invariant
                 _append_row(
                     fh,
                     {
                         "id": bb_id,
                         "seq_idx": seq_idx,
-                        "cand": f"{bb_id}_seq{seq_idx:02d}",
+                        "cand": cand,
                         "seq": seq,
                         "binder_chains": list(binder_chains),
                     },
@@ -620,7 +637,10 @@ def cmd_reward(args: argparse.Namespace) -> int:
 
     ranked.sort(key=lambda r: r["reward"], reverse=True)
 
-    output_path = Path(args.output) if args.output else run / "ranked.parquet"
+    # Default to an EXTENSIONLESS path so the writer picks the format by what's installed
+    # (Parquet when polars is present, else JSONL) -- a hardcoded .parquet default would crash the
+    # final stage on the minimal CPU install that has no polars.
+    output_path = Path(args.output) if args.output else run / "ranked"
     written = _write_table(ranked, output_path)
     print(f"[reward] ranked {len(ranked)} candidates -> {written}")
     for row in ranked[: args.top]:

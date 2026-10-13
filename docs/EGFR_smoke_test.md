@@ -14,8 +14,11 @@ It has two tiers:
   a real EGFR structure. This is the actual structure-folding + interface-scoring pipeline.
 
 > **Hard reality check.** The real pipeline (Boltz-2 / Protenix for folding, RFdiffusion3 for
-> backbone sampling, PyRosetta for the interface scorer) needs **CUDA**. It does **not** run on
-> CPU and does **not** run on a Mac (no CUDA). Tier A is the only part that runs on a laptop.
+> backbone sampling, PyRosetta for the interface scorer) is **CUDA-oriented**, so a CUDA GPU is the
+> only supported, full-speed way to run it (Tier B below). On Apple Silicon (MPS) a reduced,
+> **stage-wise** run may be possible but is unverified and much slower — RFD3 in particular may not
+> run on MPS at all — see `docs/RUNNING.md` Part 2 for that experimental path and its caveats. Tier
+> A (this doc) is the CPU/mock health check and runs on any laptop.
 
 ---
 
