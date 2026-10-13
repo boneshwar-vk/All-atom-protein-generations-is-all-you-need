@@ -1,7 +1,8 @@
 # Human-readable mirror of the manifest in scripts/download_weights.py (that script's MANIFEST
 # list is authoritative). Weights live under data/weights/<dest>/ and are NEVER committed to git
-# (size + licensing). `make weights` / `python scripts/download_weights.py` places the open ones
-# and prints where a licensed user drops the proprietary Protenix v2 weights.
+# (size + licensing) -- EXCEPT ProteinMPNN, which is vendored into the repo (MIT, small).
+# `make weights` prints the plan; `make weights-download` (scripts/weights/download_all.sh) fetches
+# the open weights into the exact locations; a licensed user drops Protenix v2 where noted.
 weights:
   - name: boltz2
     license: MIT
@@ -11,7 +12,7 @@ weights:
   - name: proteinmpnn
     license: MIT
     open: true
-    method: in_repo       # ships WITH the packages/proteinmpnn fork once vendored (placeholder today)
+    method: in_repo       # VENDORED in packages/proteinmpnn/.../vendor (8 x v_48_*.pt); no download
     dest: proteinmpnn
   - name: rfd3
     license: BSD-3-Clause

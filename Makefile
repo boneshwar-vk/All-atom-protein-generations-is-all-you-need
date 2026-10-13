@@ -3,7 +3,7 @@
 IMAGE_PREFIX ?= aapg
 
 .PHONY: help setup sync lock test lint fmt type check hooks weights \
-        build-images build-base clean
+        weights-download weights-download-all build-images build-base clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -38,8 +38,14 @@ check: lint type test ## Run lint + type + test (what CI runs)
 hooks: ## Install pre-commit hooks
 	uv run pre-commit install
 
-weights: ## Download model weights listed in the manifest
+weights: ## Print the weights plan (what goes where, and how each is obtained)
 	uv run python scripts/download_weights.py
+
+weights-download: ## Download the open weights into data/weights/ (Boltz-2, RFD3; verifies ProteinMPNN)
+	bash scripts/weights/download_all.sh
+
+weights-download-all: ## Also fetch the optional open extras (Protenix v1, ESM-2)
+	bash scripts/weights/download_all.sh --with-protenix-v1 --with-esm2
 
 build-base: ## Build the shared base container image
 	docker build -f containers/base.Dockerfile -t $(IMAGE_PREFIX)/base:latest .
