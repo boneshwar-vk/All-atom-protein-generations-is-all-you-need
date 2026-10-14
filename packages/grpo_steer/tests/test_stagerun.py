@@ -160,3 +160,54 @@ def test_read_jsonl_tolerates_torn_trailing_line(tmp_path):
         raise AssertionError("expected a JSONDecodeError on a corrupt non-final line")
     except json.JSONDecodeError:
         pass
+
+
+def test_repair_torn_tail_truncates_partial_final_line(tmp_path):
+    """A manifest ending without a newline (hard kill mid-append) is truncated to the last row."""
+    p = tmp_path / "m.jsonl"
+    p.write_text('{"cand": "a"}\n{"cand": "b"}\n{"cand": "c"')  # torn final line, no newline
+    stagerun._repair_torn_tail(p)
+    assert p.read_text() == '{"cand": "a"}\n{"cand": "b"}\n'  # torn row dropped, ends in newline
+    # Idempotent + leaves an intact file alone.
+    stagerun._repair_torn_tail(p)
+    assert p.read_text() == '{"cand": "a"}\n{"cand": "b"}\n'
+
+
+def test_resume_after_torn_tail_restores_invariant(tmp_path):
+    """A torn sequences manifest heals on resume: no corrupt line, N*K invariant restored."""
+    run = tmp_path / "egfr_mac"
+    assert stagerun.main(["rfd3", *_common(str(run)), "--n", str(N), "--seed", "0"]) == 0
+    assert stagerun.main(["mpnn", *_common(str(run)), "--seqs-per", str(K)]) == 0
+
+    seq_path = run / "sequences.jsonl"
+    rows = _read_jsonl(seq_path)
+    # Simulate a hard kill: drop one cand AND leave the file ending in a torn partial line.
+    kept = [r for r in rows if r["cand"] != "bb0001_seq01"]
+    seq_path.write_text("".join(json.dumps(r) + "\n" for r in kept) + '{"cand": "bb0001_se')
+
+    assert stagerun.main(["mpnn", *_common(str(run)), "--seqs-per", str(K)]) == 0
+    after = _read_jsonl(seq_path)  # must not raise -> no corrupt line survived
+    cands = [r["cand"] for r in after]
+    assert len(cands) == N * K and len(set(cands)) == N * K  # invariant restored, no dup
+
+
+def test_fold_poison_pill_records_flagged_row_and_resume_skips(tmp_path, monkeypatch):
+    """A scorer that raises must flag the candidate (not crash the stage); resume then skips it."""
+    run = tmp_path / "egfr_mac"
+    assert stagerun.main(["rfd3", *_common(str(run)), "--n", str(N), "--seed", "0"]) == 0
+    assert stagerun.main(["mpnn", *_common(str(run)), "--seqs-per", str(K)]) == 0
+
+    class _Boom:
+        def score(self, candidate):  # noqa: ANN001
+            raise RuntimeError("backend blew up")
+
+    monkeypatch.setattr(stagerun, "_build_structure_scorer", lambda *a, **k: _Boom())
+    assert stagerun.main(["fold", *_common(str(run))]) == 0  # stage completes despite failures
+
+    structures = _read_jsonl(run / "structure.jsonl")
+    assert len(structures) == N * K
+    assert all("scorer_error" in row for row in structures)  # every one flagged, none crashed
+
+    # Resume must NOT re-run the flagged candidates (no infinite retry), so no new rows.
+    assert stagerun.main(["fold", *_common(str(run))]) == 0
+    assert len(_read_jsonl(run / "structure.jsonl")) == N * K

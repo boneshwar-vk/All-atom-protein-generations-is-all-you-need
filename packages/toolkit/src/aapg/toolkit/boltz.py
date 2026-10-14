@@ -89,6 +89,7 @@ class BoltzScorer(Scorer):
         recycling_steps: int = 3,
         diffusion_samples: int = 1,
         use_msa: bool = False,
+        seed: int | None = None,
         extra_args: list[str] | None = None,
         work_dir: str | None = None,
         **kwargs: Any,
@@ -99,6 +100,9 @@ class BoltzScorer(Scorer):
         self.weights_dir = weights_dir
         self.recycling_steps = recycling_steps
         self.diffusion_samples = diffusion_samples
+        # Optional: pass --seed to make Boltz folding reproducible run-to-run. Left None by default
+        # so installs whose `boltz` build lacks the flag are unaffected; set it for determinism.
+        self.seed = seed
         # Default to single-sequence (msa: empty): at GRPO scale (thousands of complexes) an MSA
         # server is impractical and non-deterministic, and binder pipelines run single-sequence.
         # Set use_msa=True to let Boltz build MSAs (adds --use_msa_server).
@@ -170,6 +174,8 @@ class BoltzScorer(Scorer):
             cmd += ["--cache", self.weights_dir]
         if self.use_msa:
             cmd += ["--use_msa_server"]
+        if self.seed is not None:
+            cmd += ["--seed", str(self.seed)]
         cmd += self.extra_args
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)

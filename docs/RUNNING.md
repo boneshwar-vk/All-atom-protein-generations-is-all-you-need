@@ -49,11 +49,32 @@ make weights-download        # Boltz-2 -> data/weights/boltz2 ; RFD3 -> data/wei
 ```
 ProteinMPNN weights are vendored in the repo — nothing to download.
 
-### 1.4 The EGFR target
-Put your EGFR structure (e.g. ectodomain PDB `1IVO`/`3NJP`, or a single domain) under `data/`,
-then edit `configs/experiment/grpo_egfr.yaml`: set `target.structure_path`, `target.chains`,
+### 1.4 The EGFR target (crop + MSA are MANDATORY)
+Put your EGFR structure (e.g. ectodomain PDB `1IVO`/`3NJP`) under `data/`, then edit
+`configs/experiment/grpo_egfr.yaml`: set `target.structure_path`, `target.chains`,
 `target.hotspots` (the epitope residues), and `target.binder_length`. See
 `docs/EGFR_smoke_test.md` for how to pick the domain + hotspots.
+
+> **Crop the target to the epitope-bearing domain before you run — this is not optional.**
+> Use a single domain (domain III, ~res 310–480 in mature EGFR numbering, ~150–200 aa), **not**
+> the full ~620 aa ectodomain. Two reasons, both of which otherwise corrupt the ranking:
+>
+> 1. **The pLDDT gate is a *whole-complex* average.** `complex_plddt` is computed over every
+>    residue the folder sees — target + binder. On a huge, flexible, multi-domain target the
+>    target residues dominate that average and swamp the binder/interface signal: a good binder on
+>    a floppy ectodomain can fail the `complex_plddt` hard gate purely because of target flexibility
+>    it has nothing to do with, and a bad binder can sail through on a rigid target. Cropping to the
+>    epitope domain keeps the average dominated by the region you actually care about, so the gate
+>    reflects the design, not the scaffold.
+> 2. **Folding cost/memory scale steeply with total residues** (and on a 24 GB Mac the full
+>    ectodomain simply OOMs — see Part 2).
+>
+> **Enable a target MSA.** Set `use_msa: true` for the structure backend
+> (`configs/scorer/boltz2.yaml`, or `+steering.scorer_cfg.structure_auto.boltz_cfg.use_msa=true`).
+> Single-sequence folding of the receptor degrades target-side confidence, which — via the same
+> whole-complex `complex_plddt` gate — again penalises good binders for a target artefact. An MSA
+> on the (now small) cropped target is cheap and removes that confound. It needs network for the
+> MSA server on the first fold; build it once and cache it.
 
 ### 1.5 Run (single A100)
 ```bash
@@ -69,6 +90,24 @@ Knobs: `n_backbones` × `seqs_per_backbone` = candidates scored; the cost-ordere
 early-exits (cheap structure stage gates before Rosetta), so most compute is folding survivors.
 Switch backend with `scorer=boltz2` / `scorer=protenix`; designer with `designer=protonmpnn`
 (placeholder) / `proteinmpnn`.
+
+**RFD3 design spec (version-dependent — you must set this).** The adapter drives the RFD3 CLI
+with Hydra-style overrides from `configs/sampler/default.yaml → spec`. RFD3's own config keys vary
+by build, so pass the binder/target layout through `spec`, **not** a bare length. The binder vs.
+target placement is a `contigmap.contigs` string (e.g. one chain held fixed + a designed segment)
+plus `ppi.hotspot_res` for the epitope — for example:
+```bash
+  +sampler.spec.'contigmap.contigs'='[A1-168/0 80-80]' \
+  +sampler.spec.'ppi.hotspot_res'='[A465,A467,A468]'
+```
+(`A1-168` = the cropped target chain kept verbatim; `80-80` = an 80-residue de-novo binder; adjust
+to your renumbered structure and `binder_length`.) Confirm the exact key names against your RFD3
+build — `contigmap.contigs`, not a bare `contigmap.length`.
+
+**RFD3 checkpoint filename is version-dependent.** `configs/model/rfd3.yaml` points at
+`${paths.weights_dir}/rfd3/base.ckpt` as a placeholder; the real foundry/RFD3 checkpoint under
+`data/weights/rfd3/` is usually named differently. Check `foundry list-installed` and set
+`model.checkpoint=/abs/path/to/<actual>.ckpt` (or edit `configs/model/rfd3.yaml`).
 
 ### 1.6 Multiple A100s
 v1 selection is single-process (the `launcher` group is a stub). To use N GPUs, run **N independent
@@ -208,3 +247,24 @@ complex end-to-end first**, then set Stage-1 `n` to `~ (480 min − RFD3 time) /
 - Stage-wise writes per-stage manifests; re-running a stage skips completed ids (append + dedupe).
 - Per-candidate scratch dirs are auto-removed; non-winning RFD3 backbones are cleaned per round.
 - Nothing under `data/weights/` or `experiments/outputs/` is committed to git.
+
+### Reading the ranked table (output columns)
+The ranked table has one row per candidate (every backbone × sequence), **sorted by `seq_reward`
+descending** — the absolute per-design ipSAE-gated reward. Rank designs for ordering/export by
+`seq_reward` (best first); it is the number to trust when picking which designs to synthesise.
+
+- **`seq_reward`** — the reward of *this individual sequence* (ipSAE primary + hard gates + soft
+  penalties). A hard-gate failure drives it to the hard-fail floor. This is the ranking key.
+- **`selected`** — `true` on **exactly one row per winning backbone**: its best, *gate-passing*
+  sequence. A backbone wins by having the top absolute `seq_reward` among its sequences (top-`k`
+  backbones kept). If a backbone's best sequence fails the hard gates, **nothing** from it is
+  selected — there is no "least-bad" winner. Use `selected` for the curated keep-set; use
+  `seq_reward` for the full ranking.
+- **`reward` / `advantage`** — retained as **diagnostics only** (backbone-aggregate reward and its
+  group-relative z-score `(r−mean)/std`). They no longer drive selection or the final sort; earlier
+  versions ranked by `advantage`, which is why the sort key changed to `seq_reward`.
+- Stage-wise adds **`gate_pass`** (bool) to `ranked.*` — `true` iff `seq_reward` cleared the hard
+  gates (the stage-wise equivalent of a `selected`-eligible row).
+- The 10 metrics (`ipsae`, `iptm`, `ipae_min`, `ipae_mean`, `complex_plddt`, `interface_dg`,
+  `shape_complementarity`, `contact_molecular_surface`, `sap_normalized`, `isoelectric_point`) plus
+  `scrmsd` and `has_clash` are carried on every row for inspection.

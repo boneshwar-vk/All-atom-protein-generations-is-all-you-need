@@ -46,6 +46,7 @@ def passed_hard_gates(reward_value: float) -> bool:
     """
     return reward_value > _HARD_FAIL_FLOOR / 2.0
 
+
 # Floor on a *derived* soft-penalty denominator. When no explicit ``scale`` is given, the scale
 # defaults to the bound's characteristic magnitude; a bound whose magnitude is 0 (e.g.
 # ``interface_dg: {max: 0}``) would otherwise divide by ~0 and produce an enormous penalty that

@@ -60,6 +60,7 @@ def test_pipeline_has_all_metric_and_rank_columns():
         "binder_sequence",
         "round",
         "selected",
+        "seq_reward",
         "reward",
         "advantage",
         *METRIC_COLUMNS,
@@ -79,32 +80,54 @@ def test_pipeline_is_deterministic():
     assert seqs_a == seqs_b
 
 
-def test_pipeline_ranked_by_advantage():
+def test_pipeline_ranked_by_seq_reward():
+    # The final table is ranked by absolute per-design reward (best first), NOT by advantage.
     rows = _rows(_pipeline().run(Target(binder_length=20)))
-    advantages = [r["advantage"] for r in rows]
-    assert advantages == sorted(advantages, reverse=True)
+    seq_rewards = [r["seq_reward"] for r in rows]
+    assert seq_rewards == sorted(seq_rewards, reverse=True)
 
 
-def test_top_k_marks_only_winners_selected():
+def test_selected_is_one_gate_passing_sequence_per_winning_backbone():
     sampler = MockRFD3Sampler()
     designer = MockMPNNDesigner()
     scorers = [SCORERS.create("protenix_v2_mock"), SCORERS.create("rosetta_interface_mock")]
-    reward = IpSAEGatedReward(primary="ipsae", hard={"ipsae": {"min": 0.6}})
+    # Permissive gate so some designs pass; selection keeps 2 of 4 backbones.
+    reward = IpSAEGatedReward(primary="ipsae", hard={"ipsae": {"min": 0.3}})
     cfg = {
         "n_backbones": 4,
         "seqs_per_backbone": 2,
         "n_rounds": 1,
-        "top_k": 2,  # keep 2 of 4 backbones
+        "top_k": 2,
         "group_size": 64,
         "seed": 1,
     }
-    pipeline = SelectionPipeline(sampler, designer, scorers, reward, cfg)
-    rows = _rows(pipeline.run(Target(binder_length=16)))
+    rows = _rows(
+        SelectionPipeline(sampler, designer, scorers, reward, cfg).run(Target(binder_length=16))
+    )
     assert len(rows) == 8  # all candidates recorded
-    # Exactly top_k backbones (2) are selected; each contributes seqs_per_backbone (2) rows.
-    selected_backbones = {r["name"].rsplit("_s", 1)[0] for r in rows if r["selected"]}
-    assert len(selected_backbones) == 2
-    assert sum(1 for r in rows if r["selected"]) == 4
+    selected = [r for r in rows if r["selected"]]
+    # At most one selected row per winning backbone (its best, gate-passing sequence).
+    backbone_of = lambda r: r["name"].rsplit("_seq", 1)[0]  # noqa: E731
+    assert len(selected) <= 2
+    assert len({backbone_of(r) for r in selected}) == len(selected)  # one per backbone
+    from aapg.grpo.reward import passed_hard_gates
+
+    for r in selected:
+        assert passed_hard_gates(float(r["seq_reward"]))  # never a hard-gate failure
+
+
+def test_selected_excludes_hard_gate_failures():
+    # An impossible hard gate => every design fails => nothing is selected (no "least-bad" winner).
+    sampler = MockRFD3Sampler()
+    designer = MockMPNNDesigner()
+    scorers = [SCORERS.create("protenix_v2_mock"), SCORERS.create("rosetta_interface_mock")]
+    reward = IpSAEGatedReward(primary="ipsae", hard={"ipsae": {"min": 1.01}})  # unsatisfiable
+    cfg = {"n_backbones": 4, "seqs_per_backbone": 2, "top_k": 2, "group_size": 64, "seed": 1}
+    rows = _rows(
+        SelectionPipeline(sampler, designer, scorers, reward, cfg).run(Target(binder_length=16))
+    )
+    assert rows  # candidates are still recorded
+    assert not any(r["selected"] for r in rows)  # but none is marked a winner
 
 
 def _write_pipeline(output_path: str) -> SelectionPipeline:
