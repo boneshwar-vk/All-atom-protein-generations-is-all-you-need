@@ -1,0 +1,57 @@
+{
+  "circle_clean": {
+    "noise": 0.05,
+    "radial_noise": 0.0,
+    "fvu_flat_block_2d": 0.1338,
+    "fvu_curved_unitcircle_2d": 0.1361,
+    "curved_minus_flat": 0.0022,
+    "angle_recovery_corr_up_to_isometry": 0.9987,
+    "scalar_cover_curve_fvu_vs_atoms": {
+      "2": 0.5679060245321245,
+      "4": 0.29109997329086573,
+      "8": 0.17643662460529674,
+      "16": 0.144819188835616,
+      "32": 0.1366075740921636,
+      "64": 0.134531089978752,
+      "128": 0.13401024292737163,
+      "256": 0.1338775416614755
+    },
+    "tolerance_eps": 0.1638,
+    "scalar_atoms_to_reach_eps": 16,
+    "block_atoms_to_reach_eps": 1
+  },
+  "circle_radial_noise": {
+    "noise": 0.05,
+    "radial_noise": 0.15,
+    "fvu_flat_block_2d": 0.1313,
+    "fvu_curved_unitcircle_2d": 0.1526,
+    "curved_minus_flat": 0.0213,
+    "angle_recovery_corr_up_to_isometry": 0.9986,
+    "scalar_cover_curve_fvu_vs_atoms": {
+      "2": 0.5648688570292574,
+      "4": 0.28709951578446746,
+      "8": 0.17458590407157099,
+      "16": 0.14240535334564733,
+      "32": 0.1340702476102758,
+      "64": 0.13196010813305795,
+      "128": 0.13143991084016818,
+      "256": 0.13130846504800367
+    },
+    "tolerance_eps": 0.1613,
+    "scalar_atoms_to_reach_eps": 16,
+    "block_atoms_to_reach_eps": 1
+  },
+  "torus_clean": {
+    "noise": 0.05,
+    "fvu_flat_block_4d": 0.0695,
+    "angle1_recovery_corr": 0.6146,
+    "angle2_recovery_corr": 0.5934
+  },
+  "gate_G0_go": true,
+  "verdict": [
+    "CURVED-vs-FLAT at matched dim: TIE (as predicted) -> curved geometry is a CONTROL, not the headline",
+    "IDENTIFIABILITY up to isometry: PASS (angle recovered, corr>0.95)",
+    "SCALAR covering-number penalty: PRESENT (scalar needs many atoms vs 1 block)",
+    "GATE G0: GO -> commit to identity+cause+truth-vs-confidence; drop curved-dictionary machinery as a headline"
+  ]
+}
