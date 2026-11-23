@@ -1,6 +1,9 @@
-# Layer-Resolved Interpretability of Biological Foundation Models
+# Epistemic Geometry
+### *Where Structure Lives in Protein Language Models*
 
-**Locating *where* in a biological foundation model structural geometry, dynamics, and function are
+Layer-resolved interpretability of biological foundation models.
+
+**Locating *where* in a protein foundation model structural geometry, dynamics, and function are
 represented — testing whether the model *causally uses* those representations, and how they separate from the
 model's own confidence.**
 
