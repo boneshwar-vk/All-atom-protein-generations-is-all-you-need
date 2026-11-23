@@ -1,2 +1,3 @@
 # phase2_identity_truthconf
-See ICML2027_CORE.md section 8 and the gate ladder (Appendix A) for the goal, protocol, and go/no-go gate.
+Placeholder. Goal, protocol, and the go/no-go gate are tracked in the project's internal research
+plan (kept private, not in this public repo). See the top-level README for the project overview.

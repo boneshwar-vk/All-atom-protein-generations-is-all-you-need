@@ -1,2 +1,3 @@
 # docs
-Project docs. The core document is ../ICML2027_CORE.md. Provenance lives in the parent repo docs/research-plan/.
+Public project docs. The detailed internal research plan and the paper draft are kept private and
+are not included in this repository; see the top-level README for the public overview.

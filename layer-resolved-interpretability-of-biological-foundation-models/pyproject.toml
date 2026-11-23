@@ -8,8 +8,8 @@ version = "0.0.0"
 description = "Identity, cause, and truth-vs-confidence in biological foundation models."
 readme = "README.md"
 requires-python = ">=3.10"
-# PRIVATE for now; a formal open-source license will be added at public release.
-license = { text = "Proprietary — private, public release planned" }
+# A formal open-source license will be added; TBD until then.
+license = { text = "LicenseRef-TBD" }
 authors = [{ name = "project authors" }]
 dependencies = ["numpy>=1.24"]
 
