@@ -612,6 +612,88 @@ This is the crux risk and it is **not closed on paper today.** Two prongs:
 
 ---
 
+## 16. REVISION R1 (2026-11-23) — on/off-target specificity, PPI interface, and thermodynamics as layer-resolved targets
+
+**What this adds and why.** The project's spine is "where does a physically-defined quantity live in the model,
+is it identifiable, does the model use it, and is it separate from the model's confidence." R1 extends the set of
+quantities from backbone geometry/dynamics to the quantities that matter for **interactions and stability**, and
+makes the **per-layer localization map ("which layers encode X")** a first-class, repeated deliverable across all
+of them — the literal realization of the project title *where structure lives*. The method (identity → cause →
+truth-vs-confidence) and all controls are unchanged; these are new target quantities, mostly on Track B.
+
+**Scope guardrail (unchanged posture).** For the ICML 2027 submission these additions are **probe-only and
+localization-first — no steering.** The spine remains Track A (structural geometry in ESM3). The expensive
+causal/steering versions carry the heaviest dual-use weight and are **deferred** (consistent with §12 scope and
+§15 ethics). ipSAE / ipTM / pLDDT remain **confidence contrasts, never labels or steering targets**; all binding
+quantities use **experimental** values, never the model's own predicted affinity (the PairSAE lesson).
+
+### 16.1 On-target vs off-target (binding specificity)
+- **Question.** Which layers encode discrimination between a cognate (on-target) partner and a decoy / off-target
+  partner — and is the model's confidence calibrated to true specificity or merely to affinity magnitude?
+- **Ground truth.** Labeled binders vs non-binders: PLINDER / PDBBind actives vs **property-matched** decoys
+  (DUD-E-style, matched on physicochemical properties so the probe cannot cheat on size/charge); for PPI, supported
+  interacting pairs vs curated negatives (e.g. Negatome / property-matched random pairs). `[availability UNVERIFIED]`
+- **Deliverable.** A **per-layer specificity-AUROC curve** (on vs off target) → the depth where discrimination
+  peaks ("where specificity lives"); identity of the specificity direction; a truth-vs-confidence contrast
+  (does ipSAE/ipTM track true specificity or just affinity?). Causal test **deferred/probe-only**.
+- **Controls.** Property-matched decoys (not random); leakage-aware time + scaffold splits; nuisance-only baseline;
+  random-init; the model's own interface score as a confidence contrast.
+- **Dual-use.** Closest to binder-design capability of anything here → **probe-only, benign complexes, no steering**
+  toward altered on/off-target binding. Framed strictly as "where is specificity represented, and is confidence
+  calibrated to it." Owes the §15 human/compliance pass.
+- **Gate G-spec.** GO if the specificity probe beats the property-matched-decoy baseline and random-init by a
+  pre-registered margin on the leakage split; else report the negative (specificity is not linearly localized).
+
+### 16.2 PPI interface features
+- **Quantities.** Per-residue is-interface, interface contact count / buried surface area, and interface
+  **hot-spots** (residues whose mutation costs binding), with ΔΔG from SKEMPI.
+- **Ground truth.** Computed from experimental complex structures (interface residues, BSA) and SKEMPI (hot-spot ΔΔG).
+- **Deliverable.** Per-layer map of where interface identity and interface geometry are encoded; identity of the
+  hot-spot direction; truth-vs-confidence vs ipSAE. Causal test **deferred/probe-only**.
+- **Controls.** Interface labels from structure (not the model); sequence/position baseline; leakage splits;
+  random-init; nuisance-only baseline.
+- **Gate G-ppi.** GO if the interface probe beats a sequence/position baseline and random-init per layer.
+
+### 16.3 Thermodynamics
+- **Quantities.** Binding free energy ΔG / Kd (continuous), mutational binding ΔΔG (SKEMPI), and fold **stability**
+  — melting temperature Tm / folding ΔG — where data exists (mega-scale stability datasets; `[availability UNVERIFIED]`).
+- **Deliverable.** Is there an **identifiable thermodynamic axis** (a scalar coordinate; "isometry" here = a
+  monotone reparametrization, scored by held-out Spearman)? Which layers carry it? Is it separate from the model's
+  confidence (a ΔG axis vs pLDDT/ipSAE)? Causal test for a scalar = monotone dose-response, **deferred**.
+- **Controls.** Leakage-aware time/scaffold splits + explicit leakage probe; affinity-matched negatives;
+  random-init; **experimental** ΔG/Kd only (never the model's predicted affinity).
+- **Gate G-thermo.** GO if the experimental-ΔG/Kd probe beats the leakage probe by a pre-registered Spearman margin.
+
+### 16.4 How R1 slots into the existing claims, phases, and gates
+- **Claims.** Identity (C1) and truth-vs-confidence (C3) extend to each new quantity. Wrap-around (C2) applies only
+  to genuinely **cyclic** quantities (angles), **not** to scalars (ΔG, specificity) — for scalars the causal test is
+  monotone dose-response and is deferred. Cross-variable invariance (**C6**) now spans {(φ,ψ)-torus, helix-phase,
+  specificity, interface, ΔG} — strengthening the anti-cherry-pick argument with structural *and* interaction *and*
+  thermodynamic variables.
+- **Localization map.** A per-layer "which layers encode X" curve is produced for **every** quantity (dynamics/
+  angles, on/off-target, PPI interface, thermodynamics). This layer-resolved atlas is a headline deliverable in its
+  own right and is the public repo's framing ("where structure lives").
+- **Phases.** All R1 work is **probe-level** and lands in Phase 2 (identity + localization + truth-vs-confidence) on
+  Track B; no new steering phase is added for the ICML submission. New probe-level gates **G-spec, G-ppi, G-thermo**
+  run in parallel with the Track-A gates and feed the mid-December decision gate (§11).
+- **Models / data additions.** A co-folding model (Boltz) for complexes + interface scores; SKEMPI for ΔΔG /
+  hot-spots; PLINDER/PDBBind + property-matched decoys for specificity; stability datasets for Tm/ΔG. All counts and
+  licences `[UNVERIFIED]` — verify before use.
+- **Cost / risk caveat.** R1 broadens Track B's **data engineering** (the plan's acknowledged top effort-sink) and
+  its **leakage surface**; keeping it probe-only and localization-first is deliberate so it does not threaten the
+  Track-A spine or the deadline. The expensive causal/steering versions of specificity and thermodynamics stay
+  deferred and are the most dual-use-sensitive parts of the whole program.
+
+### 16.5 Metric/engineering note (from the first-phase build)
+The synthetic de-risk (MPU-0) passed: the circular coordinate is recovered up to isometry (~0.999) and the trust
+residual flags confidently-wrong cases in the partial-coupling regime, degrading only at full truth/confidence
+entanglement (the §14.1 limitation, now demonstrated quantitatively). The reusable metrics core (circular identity,
+trust residual, AUROC) is implemented and tested in the public repo and will carry directly to the R1 scalar
+quantities (with the scalar analogues: monotone/Spearman identity, and the same trust-residual construction against
+pLDDT/ipSAE).
+
+---
+
 ## Appendix A — Decision / gate ladder (one screen)
 ```
 G0  synthetic matched-bits + identifiability (CPU)            DONE: GO (tie; corr 0.9987; covering penalty present)
