@@ -692,6 +692,40 @@ trust residual, AUROC) is implemented and tested in the public repo and will car
 quantities (with the scalar analogues: monotone/Spearman identity, and the same trust-residual construction against
 pLDDT/ipSAE).
 
+### 16.6 Datasets (reconciled 2026-11-23; full tables, sizes, licenses in the public repo `docs/datasets.md`)
+Decided from three independent reviews (facts/sizes, interpretability suitability, adversarial reviewer). Roles,
+cleanliness-ranked (lowest leakage/bias first), confirm the Track-A-load-bearing / Track-B-probe-only posture from
+data properties alone:
+1. **Dihedrals / SS / SASA / contacts — LOAD-BEARING.** PDB chains (PISCES/CATH cull), labels by DSSP/FreeSASA;
+   cache ~200–300 non-redundant chains/split; MMseqs2 ≤30% ∩ deposition-date split; CAMEO/CASP post-cutoff
+   held-out. Structure track OFF; SASA = the non-periodic double-dissociation control.
+2. **PPI interface / BSA — LOAD-BEARING (probe-only).** PINDER (2.3M systems; interface-structural splits) /
+   PPIRef; ~150–250 non-redundant complexes; interface-similarity split; DIPS CUT (DB5 leak).
+3. **Fold stability ΔG/ΔΔG — LOAD-BEARING, the thermodynamics ANCHOR = Tsuboyama/Rocklin mega-scale (776,298 ΔG;
+   479 domains; CC BY 4.0).** Single assay → clean monotone ΔG axis + dose-response + powers the confidently-wrong
+   slice; WT-domain-cluster split, NEVER per-mutant; 148 de-novo designs = anti-memorization OOD. FireProtDB/
+   Meltome → appendix/OOD only.
+4. **Dynamics — PROBE-ONLY (localization only; drop identity).** ATLAS (1,390/1,938) or mdCATH (5,398), converged
+   RMSF, fold split; B-factors control only; no clean GT.
+5. **PPI affinity / ΔΔG — DEFERRED → hot-spot classification.** SKEMPI 2.0 (7,085 muts / 345 complexes),
+   complex-cluster split; continuous/causal version deferred.
+6. **Protein–ligand Kd — PROBE-ONLY + GATED (G-B1).** PDBBind under PLINDER PL50/TIME or LP-PDBBind splits;
+   ~800–1,500 non-redundant complexes; experimental Kd only, single assay; BindingDB CUT (pooled assays, no
+   structures); appendix-negative if G-B1 fails.
+7. **On/off-target specificity — PROBE-ONLY + APPENDIX, most dual-use.** LIT-PCBA (+ AVE-dedup) over DUD-E;
+   Bernett-2024 / Negatome for PPI; requires a protein-dependence / pocket-ablation control or the claim is dropped.
+
+**Minimum-N principle.** The binding constraint is non-redundant CLUSTERS after leakage-aware splitting, not rows:
+~150–300 clusters/split for localization+identity, and ~45–55 cases in the confidently-wrong slice (DeLong, 0.70
+vs 0.50 at 80% power) for the truth-vs-confidence AUROC — a per-quantity power check is owed (the §14.1 limit made
+concrete). **Auto-reject traps** (see datasets.md §8): structure-track-ON for Track A; random/legacy or per-mutant
+splits on a pretraining corpus; DIPS/crystal-contact interfaces; DUD-E specificity without a protein-dependence
+control; pooled-assay BindingDB; target = the model's own predicted affinity; B-factors as the sole dynamics label;
+any number not reported trained−random and not beating the explicit leakage probe. **Additions:** ProteinGym (DMS),
+S669/Ssym (leakage-filtered ΔΔG), FLIP, MISATO. **Verify before paper:** CATH S40 count; PINDER license; the exact
+Tsuboyama Zenodo version/ML-ready count; PDBBind/CASF/FireProtDB/Negatome/Bernett counts+licenses; BindingDB
+usable-Kd subset; and ESM3 `d_model` / RoPE / sequence-only pLDDT (governs the Track-A confidence object).
+
 ---
 
 ## Appendix A — Decision / gate ladder (one screen)
