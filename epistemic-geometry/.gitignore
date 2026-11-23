@@ -1,0 +1,45 @@
+# Private project — do not commit large or licensed artifacts.
+
+# Data (large / licensed): keep the folders (.gitkeep) but not their contents
+data/raw/*
+data/processed/*
+data/activations/*
+!data/**/.gitkeep
+
+# Results: keep structure, not heavy outputs
+results/figures/*
+results/tables/*
+results/logs/*
+!results/**/.gitkeep
+
+# Model weights / caches
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.npy
+*.npz
+*.h5
+*.pdb
+*.cif
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Notebooks / tooling
+.ipynb_checkpoints/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Keep the Phase 0 result (small, in-hand) even though *.json-like outputs are otherwise transient
+!experiments/phase0_synthetic/phase0_results.json
