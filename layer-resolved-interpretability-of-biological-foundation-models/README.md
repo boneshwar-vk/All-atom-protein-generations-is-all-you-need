@@ -30,8 +30,7 @@ depths the model actually acts on, and where its internal "what is true" diverge
 
 Early-stage public scaffold. **Phase 0** (a pure-numpy calibration test) is implemented and passing; the later
 phases are placeholders. The project's detailed research plan and the paper draft are kept **internal and are
-not included in this repository**. A formal open-source license will be added here; until it is, treat the
-contents as provided for reading without a redistribution grant.
+not included in this repository**. Released under the MIT License (see `LICENSE`).
 
 ## Repository layout
 
